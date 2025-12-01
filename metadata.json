@@ -1,0 +1,8 @@
+{
+  "name": "Ilyasuu OS",
+  "description": "A high-performance, cyberpunk anime-themed personal dashboard for discipline and productivity.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

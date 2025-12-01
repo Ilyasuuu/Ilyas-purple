@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+    <title>Ilyasuu OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --neon-purple: #8B00FF;
+        --glass-border: rgba(255, 255, 255, 0.15);
+      }
+      body {
+        background-color: #050505;
+        color: #e0e0e0;
+        font-family: 'Rajdhani', sans-serif;
+        overflow: hidden;
+      }
+      .font-orbitron { font-family: 'Orbitron', sans-serif; }
+      .font-rajdhani { font-family: 'Rajdhani', sans-serif; }
+      
+      /* Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(139, 0, 255, 0.3); 
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(139, 0, 255, 0.6); 
+      }
+
+      /* Cyberpunk Grid Background */
+      .bg-grid {
+        background-size: 40px 40px;
+        background-image: linear-gradient(to right, rgba(139, 0, 255, 0.03) 1px, transparent 1px),
+                          linear-gradient(to bottom, rgba(139, 0, 255, 0.03) 1px, transparent 1px);
+      }
+
+      /* Glassmorphism Utilities - Lighter & Smoother */
+      .glass-panel {
+        background: linear-gradient(135deg, rgba(20, 10, 30, 0.4), rgba(139, 0, 255, 0.15));
+        backdrop-filter: blur(25px);
+        -webkit-backdrop-filter: blur(25px);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+      }
+      
+      /* Special styling for floating bars */
+      .glass-floating {
+        background: linear-gradient(180deg, rgba(168, 85, 247, 0.1), rgba(139, 0, 255, 0.05));
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+      }
+
+      .neon-text {
+        text-shadow: 0 0 10px rgba(168, 85, 247, 0.6);
+      }
+
+      /* Animations */
+      @keyframes slow-zoom {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+      }
+      .animate-slow-zoom {
+        animation: slow-zoom 20s ease-in-out infinite;
+      }
+
+      .smooth-transition {
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      /* Football Spark Effect */
+      @keyframes spark {
+        0% { transform: scale(0); opacity: 0; }
+        50% { opacity: 1; }
+        100% { transform: scale(1.5); opacity: 0; }
+      }
+      .animate-spark {
+        animation: spark 0.8s ease-out infinite;
+      }
+
+      /* Neon Breathing */
+      @keyframes neon-pulse {
+        0%, 100% { text-shadow: 0 0 5px #8B00FF, 0 0 10px #8B00FF; opacity: 0.8; }
+        50% { text-shadow: 0 0 20px #8B00FF, 0 0 30px #ffffff; opacity: 1; }
+      }
+      .animate-neon-pulse {
+        animation: neon-pulse 2s infinite;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@2.45.4"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
