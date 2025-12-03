@@ -80,13 +80,27 @@ const App: React.FC = () => {
 
   // --- AUTH LISTENER ---
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoadingSession(false);
-    });
+    const initAuth = async () => {
+      try {
+        // Attempt to get session
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        setSession(data.session);
+      } catch (err) {
+        console.error("Auth Initialization Error:", err);
+        // We remain logged out (session = null)
+      } finally {
+        // ALWAYS finish loading, preventing black screen
+        setLoadingSession(false);
+      }
+    };
+
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      // Ensure loading is cleared on any auth state change
+      setLoadingSession(false);
     });
 
     return () => subscription.unsubscribe();
