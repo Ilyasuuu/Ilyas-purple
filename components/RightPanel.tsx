@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Dumbbell, Flame, WifiOff } from 'lucide-react';
-import { FootballMatch, ScheduleBlock } from '../types';
+import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Dumbbell, Flame } from 'lucide-react';
+import { ScheduleBlock } from '../types';
 
 interface RightPanelProps {
   isSnowing: boolean;
@@ -17,11 +17,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
   // Hydration UI State
   const [isHydrationModalOpen, setIsHydrationModalOpen] = useState(false);
   const DAILY_GOAL = 3000; // 3000ml = 3L
-
-  // Football State
-  const [upcomingMatches, setUpcomingMatches] = useState<FootballMatch[]>([]);
-  const [isFootballLoading, setIsFootballLoading] = useState(true);
-  const [footballError, setFootballError] = useState(false);
 
   // Gym Countdown State
   const [gymTimer, setGymTimer] = useState("00:00:00");
@@ -131,117 +126,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
     return () => clearInterval(timer);
   }, [schedule]); // Re-run if schedule changes
 
-  // Football Data Fetch (ESPN via CORS Proxy)
-  useEffect(() => {
-    const fetchSchedule = async () => {
-      const CACHE_KEY = 'ilyasuu_rm_schedule_espn';
-      const CACHE_DURATION = 5 * 60 * 1000; // 5 minute cache (Live data needs freq updates)
-
-      // 1. Check Cache
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        try {
-          const { timestamp, data } = JSON.parse(cached);
-          if (Date.now() - timestamp < CACHE_DURATION) {
-             setUpcomingMatches(data);
-             setIsFootballLoading(false);
-             return;
-          }
-        } catch (e) {
-          console.error("Cache Parse Error", e);
-        }
-      }
-
-      // 2. Fetch Fresh Data from ESPN via AllOrigins Proxy
-      setIsFootballLoading(true);
-      setFootballError(false);
-      try {
-        const ESPN_URL = 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/teams/86/schedule';
-        const PROXY_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(ESPN_URL);
-        
-        const response = await fetch(PROXY_URL);
-        if (!response.ok) throw new Error('Network response was not ok');
-        
-        const data = await response.json();
-        
-        // Process ESPN Data
-        const events = data.events || [];
-        const matches: FootballMatch[] = [];
-
-        // Filter for upcoming or live
-        // ESPN Status Types: 'pre' (Scheduled), 'in' (Live), 'post' (Finished)
-        const activeEvents = events.filter((e: any) => 
-           e.competitions[0].status.type.state === 'pre' || 
-           e.competitions[0].status.type.state === 'in'
-        ).slice(0, 2); // Take next 2
-
-        activeEvents.forEach((event: any, idx: number) => {
-           const competition = event.competitions[0];
-           const competitors = competition.competitors;
-           const rm = competitors.find((c: any) => c.id === '86');
-           const opponent = competitors.find((c: any) => c.id !== '86');
-           
-           if (!rm || !opponent) return;
-
-           const isHome = rm.homeAway === 'home';
-           const statusState = competition.status.type.state;
-           
-           let appStatus: 'SCHEDULED' | 'IN_PLAY' | 'FINISHED' = 'SCHEDULED';
-           if (statusState === 'in') appStatus = 'IN_PLAY';
-           if (statusState === 'post') appStatus = 'FINISHED';
-
-           matches.push({
-             id: parseInt(event.id),
-             utcDate: event.date,
-             status: appStatus,
-             minute: 0, // ESPN doesn't always provide minute easily in this summary
-             homeTeam: {
-               id: isHome ? 86 : parseInt(opponent.id),
-               name: isHome ? 'Real Madrid' : opponent.team.displayName,
-               shortName: isHome ? 'RMA' : (opponent.team.abbreviation || 'OPP'),
-               crest: ''
-             },
-             awayTeam: {
-               id: isHome ? parseInt(opponent.id) : 86,
-               name: isHome ? opponent.team.displayName : 'Real Madrid',
-               shortName: isHome ? (opponent.team.abbreviation || 'OPP') : 'RMA',
-               crest: ''
-             },
-             score: {
-               fullTime: { 
-                 home: parseInt(isHome ? rm.score?.value : opponent.score?.value) || 0, 
-                 away: parseInt(isHome ? opponent.score?.value : rm.score?.value) || 0
-               }
-             },
-             competition: {
-               name: event.season.slug || 'Football',
-               emblem: ''
-             }
-           });
-        });
-
-        if (matches.length > 0) {
-          setUpcomingMatches(matches);
-          localStorage.setItem(CACHE_KEY, JSON.stringify({
-            timestamp: Date.now(),
-            data: matches
-          }));
-        } else {
-           // No data or offseason
-           setUpcomingMatches([]);
-        }
-
-      } catch (e) {
-        console.error("ESPN Fetch Error:", e);
-        setFootballError(true);
-      } finally {
-        setIsFootballLoading(false);
-      }
-    };
-
-    fetchSchedule();
-  }, []);
-
 
   const getWeatherDescription = (code: number): string => {
     if (code === 0) return "Clear Sky";
@@ -262,21 +146,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
     if (code >= 95) return <CloudLightning className="w-8 h-8 text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]" />;
     return <CloudRain className="w-8 h-8 text-blue-400 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]" />;
   };
-
-  const formatDate = (isoString: string) => {
-    try {
-      const date = new Date(isoString);
-      return {
-          // Use browser's local timezone (Vilnius)
-          day: date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-          time: date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-      };
-    } catch (e) {
-      return { day: '--', time: '--' };
-    }
-  };
-
-  const isLiveMatch = (status: string) => ['IN_PLAY', 'PAUSED', 'LIVE'].includes(status);
 
   return (
     <>
@@ -399,97 +268,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
                 </div>
              )}
            </div>
-        </div>
-
-        {/* REAL MADRID COMMAND CENTER */}
-        <div className="glass-panel p-0 rounded-2xl overflow-hidden relative border-t border-purple-500/30 flex flex-col group">
-            
-            {/* Holographic Header */}
-            <div className="bg-gradient-to-r from-purple-900/80 to-blue-900/80 p-3 flex justify-between items-center border-b border-white/10 relative z-20">
-                <div className="flex items-center gap-2">
-                   <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center p-0.5 shadow-[0_0_10px_white]">
-                      <img src="https://upload.wikimedia.org/wikipedia/en/5/56/Real_Madrid_CF.svg" alt="RM" className="w-full h-full" />
-                   </div>
-                   <span className="font-orbitron text-xs font-bold text-white animate-neon-pulse">HALA MADRID</span>
-                </div>
-                <Zap size={14} className="text-yellow-400 animate-pulse" />
-            </div>
-
-            {/* Content Area */}
-            <div className="p-4 bg-[#0a0a12] relative min-h-[140px]">
-                {/* Holographic Grid BG */}
-                <div className="absolute inset-0 bg-[linear-gradient(rgba(139,0,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(139,0,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px] opacity-20" />
-                
-                {/* Current/Next RM Match */}
-                <div className="relative z-10 mb-4">
-                    <h4 className="text-[10px] text-gray-500 font-mono uppercase tracking-widest mb-2 flex items-center gap-1">
-                        <Activity size={10} className="text-purple-500" />
-                        Next Fixture
-                    </h4>
-                    
-                    {footballError ? (
-                       <div className="flex flex-col items-center justify-center py-4 text-center border border-red-500/20 bg-red-900/10 rounded-lg">
-                          <WifiOff size={24} className="text-red-500 mb-2 animate-pulse" />
-                          <span className="text-xs font-mono text-red-400">SYSTEM OFFLINE</span>
-                          <span className="text-[9px] text-gray-500">RECONNECTING...</span>
-                       </div>
-                    ) : upcomingMatches.length > 0 ? (
-                        <div className={`flex items-center justify-between bg-white/5 p-3 rounded-lg border transition-colors ${isLiveMatch(upcomingMatches[0].status) ? 'border-red-500/50 bg-red-900/10' : 'border-purple-500/20'}`}>
-                            <div className="flex items-center gap-2">
-                                <span className={`text-lg font-bold font-rajdhani ${upcomingMatches[0].homeTeam.name.includes('Real') ? 'text-white' : 'text-gray-400'}`}>
-                                    {upcomingMatches[0].homeTeam.shortName || 'RMA'}
-                                </span>
-                                <span className="text-xs text-gray-600">vs</span>
-                                <span className={`text-lg font-bold font-rajdhani ${upcomingMatches[0].awayTeam.name.includes('Real') ? 'text-white' : 'text-gray-400'}`}>
-                                    {upcomingMatches[0].awayTeam.shortName || 'OPP'}
-                                </span>
-                            </div>
-                            
-                            {/* LIVE SCORE vs SCHEDULED TIME */}
-                            {isLiveMatch(upcomingMatches[0].status) ? (
-                                <div className="text-right">
-                                    <span className="block text-xl font-orbitron text-white animate-pulse">
-                                      {upcomingMatches[0].score.fullTime.home ?? 0} : {upcomingMatches[0].score.fullTime.away ?? 0}
-                                    </span>
-                                    <span className="flex items-center justify-end gap-1 text-[9px] text-red-500 font-bold tracking-widest">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"/> LIVE
-                                    </span>
-                                </div>
-                            ) : (
-                                <div className="text-right">
-                                    <span className="block text-sm font-orbitron text-purple-300">{formatDate(upcomingMatches[0].utcDate).time}</span>
-                                    <span className="block text-[9px] text-gray-500">{formatDate(upcomingMatches[0].utcDate).day} • {upcomingMatches[0].competition.name}</span>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="text-xs text-gray-500 italic flex items-center gap-2">
-                            <div className="w-2 h-2 bg-purple-500/50 rounded-full animate-pulse" />
-                            Scouting matches...
-                        </div>
-                    )}
-                </div>
-
-                {/* Upcoming List */}
-                <div className="space-y-2 relative z-10">
-                    {upcomingMatches.slice(1,2).map(match => (
-                        <div key={match.id} className="flex justify-between items-center text-xs p-2 rounded hover:bg-white/5 transition-colors cursor-default" title="View details">
-                             <div className="flex items-center gap-2">
-                                <span className="text-gray-400 font-mono">{formatDate(match.utcDate).day}</span>
-                                <span className="text-gray-300 font-bold w-20 truncate">
-                                    {match.homeTeam.name.includes('Real') ? `vs ${match.awayTeam.name}` : `@ ${match.homeTeam.name}`}
-                                </span>
-                             </div>
-                             <div className="flex items-center gap-2">
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-300 border border-purple-500/20">
-                                    UPCOMING
-                                </span>
-                                <span className="text-gray-500 font-mono">{formatDate(match.utcDate).time}</span>
-                             </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
         </div>
 
       </aside>

@@ -1,8 +1,10 @@
-import { Task, GymSession, Note, WorkoutExercise, PersonalRecord } from './types';
+
+import { Task, GymSession, Note, WorkoutExercise, PersonalRecord, FootballMatch } from './types';
 import { LayoutDashboard, CheckSquare, Calendar as CalendarIcon, Dumbbell, Book, Smartphone } from 'lucide-react';
 
 // PASTE YOUR IMAGE OR VIDEO URL HERE
 export const WALLPAPER_URL = "https://4kwallpapers.com/images/walls/thumbs_3t/16958.png";
+export const DEFAULT_ANCHOR_URL = "https://media.giphy.com/media/26AHONQ79FdWZhAI0/giphy.gif";
 
 export const NAV_ITEMS = [
   { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
@@ -108,20 +110,5 @@ export const WARFARE_QUOTES = [
   "Conquer your inner bitch.",
   "Discipline equals freedom.",
   "Stay hard.",
-  "Don't stop when you're tired. Stop when you're done.",
-  "Your body can stand almost anything. It’s your mind that you have to convince.",
-  "Obsession is what lazy people call dedication.",
-  "Be undeniable.",
-  "Civilize the mind, but make savage the body.",
-  "A man who conquers himself is greater than one who conquers a thousand men in battle.",
-  "We don't rise to the level of our expectations, we fall to the level of our training.",
-  "Pain is weakness leaving the body.",
-  "The worst thing I can be is the same as everybody else.",
-  "Get comfortable being uncomfortable.",
-  "You are your own creator. Mold yourself.",
-  "Zero compromise.",
-  "Execute.",
-  "Whatever it takes."
+  "Don't stop when you're tired. Stop when you're done."
 ];
-
-export const DEFAULT_ANCHOR_URL = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExaG13aG13aG13aG13aG13aG13aG13aG13aG13aG13aG13&ep=v1_gifs_search&rid=giphy.gif";
