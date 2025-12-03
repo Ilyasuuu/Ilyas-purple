@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Dumbbell, Flame, WifiOff } from 'lucide-react';
 import { FootballMatch, ScheduleBlock } from '../types';
-import { getRealMadridSchedule } from '../services/geminiService';
 
 interface RightPanelProps {
   isSnowing: boolean;
@@ -132,11 +131,11 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
     return () => clearInterval(timer);
   }, [schedule]); // Re-run if schedule changes
 
-  // Football Data Fetch (Gemini Search)
+  // Football Data Fetch (ESPN via CORS Proxy)
   useEffect(() => {
     const fetchSchedule = async () => {
-      const CACHE_KEY = 'ilyasuu_rm_schedule_search';
-      const CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache (Live data)
+      const CACHE_KEY = 'ilyasuu_rm_schedule_espn';
+      const CACHE_DURATION = 5 * 60 * 1000; // 5 minute cache (Live data needs freq updates)
 
       // 1. Check Cache
       const cached = localStorage.getItem(CACHE_KEY);
@@ -153,67 +152,87 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
         }
       }
 
-      // 2. Fetch Fresh Data from Gemini Search
+      // 2. Fetch Fresh Data from ESPN via AllOrigins Proxy
       setIsFootballLoading(true);
       setFootballError(false);
       try {
-        const rawMatches = await getRealMadridSchedule();
+        const ESPN_URL = 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/teams/86/schedule';
+        const PROXY_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(ESPN_URL);
         
-        // Map raw data to App Type
-        const formattedMatches: FootballMatch[] = rawMatches.map((m, idx) => {
-            const isHome = m.side === 'HOME';
-            
-            // Score Logic
-            let homeScore = null;
-            let awayScore = null;
-            if (m.score && m.score !== 'null') {
-              const parts = m.score.split('-');
-              if (parts.length === 2) {
-                homeScore = parseInt(parts[0]);
-                awayScore = parseInt(parts[1]);
-              }
-            }
+        const response = await fetch(PROXY_URL);
+        if (!response.ok) throw new Error('Network response was not ok');
+        
+        const data = await response.json();
+        
+        // Process ESPN Data
+        const events = data.events || [];
+        const matches: FootballMatch[] = [];
 
-            return {
-              id: Date.now() + idx,
-              utcDate: `${m.date}T${m.time}:00Z`, // Construct ISO
-              status: m.status === 'LIVE' ? 'IN_PLAY' : m.status === 'FINISHED' ? 'FINISHED' : 'SCHEDULED',
-              minute: 0,
-              homeTeam: {
-                id: isHome ? 86 : 0,
-                name: isHome ? 'Real Madrid' : m.opponent,
-                shortName: isHome ? 'RMA' : m.opponent.substring(0, 3).toUpperCase(),
-                crest: ''
-              },
-              awayTeam: {
-                id: isHome ? 0 : 86,
-                name: isHome ? m.opponent : 'Real Madrid',
-                shortName: isHome ? m.opponent.substring(0, 3).toUpperCase() : 'RMA',
-                crest: ''
-              },
-              score: {
-                fullTime: { home: homeScore, away: awayScore }
-              },
-              competition: {
-                name: m.competition,
-                emblem: ''
-              }
-            };
+        // Filter for upcoming or live
+        // ESPN Status Types: 'pre' (Scheduled), 'in' (Live), 'post' (Finished)
+        const activeEvents = events.filter((e: any) => 
+           e.competitions[0].status.type.state === 'pre' || 
+           e.competitions[0].status.type.state === 'in'
+        ).slice(0, 2); // Take next 2
+
+        activeEvents.forEach((event: any, idx: number) => {
+           const competition = event.competitions[0];
+           const competitors = competition.competitors;
+           const rm = competitors.find((c: any) => c.id === '86');
+           const opponent = competitors.find((c: any) => c.id !== '86');
+           
+           if (!rm || !opponent) return;
+
+           const isHome = rm.homeAway === 'home';
+           const statusState = competition.status.type.state;
+           
+           let appStatus: 'SCHEDULED' | 'IN_PLAY' | 'FINISHED' = 'SCHEDULED';
+           if (statusState === 'in') appStatus = 'IN_PLAY';
+           if (statusState === 'post') appStatus = 'FINISHED';
+
+           matches.push({
+             id: parseInt(event.id),
+             utcDate: event.date,
+             status: appStatus,
+             minute: 0, // ESPN doesn't always provide minute easily in this summary
+             homeTeam: {
+               id: isHome ? 86 : parseInt(opponent.id),
+               name: isHome ? 'Real Madrid' : opponent.team.displayName,
+               shortName: isHome ? 'RMA' : (opponent.team.abbreviation || 'OPP'),
+               crest: ''
+             },
+             awayTeam: {
+               id: isHome ? parseInt(opponent.id) : 86,
+               name: isHome ? opponent.team.displayName : 'Real Madrid',
+               shortName: isHome ? (opponent.team.abbreviation || 'OPP') : 'RMA',
+               crest: ''
+             },
+             score: {
+               fullTime: { 
+                 home: parseInt(isHome ? rm.score?.value : opponent.score?.value) || 0, 
+                 away: parseInt(isHome ? opponent.score?.value : rm.score?.value) || 0
+               }
+             },
+             competition: {
+               name: event.season.slug || 'Football',
+               emblem: ''
+             }
+           });
         });
 
-        if (formattedMatches.length > 0) {
-          setUpcomingMatches(formattedMatches);
+        if (matches.length > 0) {
+          setUpcomingMatches(matches);
           localStorage.setItem(CACHE_KEY, JSON.stringify({
             timestamp: Date.now(),
-            data: formattedMatches
+            data: matches
           }));
         } else {
-           // If search returned nothing valid, set error to trigger fallback UI
-           setFootballError(true);
+           // No data or offseason
+           setUpcomingMatches([]);
         }
 
       } catch (e) {
-        // Silent fail, set error state for UI
+        console.error("ESPN Fetch Error:", e);
         setFootballError(true);
       } finally {
         setIsFootballLoading(false);
