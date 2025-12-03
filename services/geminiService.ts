@@ -1,8 +1,7 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
-const apiKey = 'AIzaSyD8CTMJGESA3sACLUvAtPGvmRzSp7n-558'
-// Initialize safe client
-const ai = new GoogleGenAI({ apiKey });
+// Initialize safe client using environment variable
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const SYSTEM_INSTRUCTION = `
 You are the AI Assistant for "Ilyasuu OS". Your name is "Unit-01".
