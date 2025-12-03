@@ -1,7 +1,11 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Initialize safe client using environment variable
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// ---------------------------------------------------------
+// 1. PASTE YOUR API KEY INSIDE THE QUOTES BELOW
+// ---------------------------------------------------------
+const apiKey = "AIzaSyD8CTMJGESA3sACLUvAtPGvmRzSp7n-558"; 
+
+const genAI = new GoogleGenerativeAI(apiKey);
 
 const SYSTEM_INSTRUCTION = `
 You are the AI Assistant for "Ilyasuu OS". Your name is "Unit-01".
@@ -12,33 +16,34 @@ When asked about gym or code, be technically accurate but demanding.
 Theme: Cyberpunk, Elite, High-Performance.
 `;
 
+// 2. Initialize the Model (Using Flash for speed)
+const model = genAI.getGenerativeModel({ 
+  model: "gemini-1.5-flash",
+  systemInstruction: SYSTEM_INSTRUCTION
+});
+
 export const sendMessageToGemini = async (
   message: string,
   imagePart?: { inlineData: { data: string; mimeType: string } }
 ): Promise<string> => {
   try {
-    const modelId = imagePart ? 'gemini-3-pro-image-preview' : 'gemini-3-pro-preview';
-    
-    const contents: any = {
-      role: 'user',
-      parts: []
-    };
-
-    if (imagePart) {
-      contents.parts.push(imagePart);
+    if (!apiKey || apiKey.includes("PASTE_YOUR")) {
+      return "Unit-01: API Key missing. Please configure source code.";
     }
-    contents.parts.push({ text: message });
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: modelId,
-      contents: [contents], // Pass as array of contents
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.7,
-      },
-    });
+    let result;
+    
+    if (imagePart) {
+      // Image + Text Request
+      result = await model.generateContent([message, imagePart]);
+    } else {
+      // Text Only Request
+      result = await model.generateContent(message);
+    }
 
-    return response.text || "Unit-01: Systems offline. No response received.";
+    const response = await result.response;
+    return response.text() || "Unit-01: Systems offline. No response data.";
+
   } catch (error) {
     console.error("Gemini Error:", error);
     return "Unit-01: Connection error. Re-engage.";
@@ -48,8 +53,8 @@ export const sendMessageToGemini = async (
 export const analyzeDay = async (tasks: string[], calendar: string[]): Promise<string> => {
   const prompt = `
     Analyze Ilyasuu's day.
-    Tasks: ${tasks.join(', ')}.
-    Calendar: ${calendar.join(', ')}.
+    Tasks: ${tasks.join(', ') || "None"}.
+    Calendar: ${calendar.join(', ') || "Empty"}.
     Suggest an optimal schedule and give a motivational kick.
   `;
   return sendMessageToGemini(prompt);
