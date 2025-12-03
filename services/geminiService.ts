@@ -1,45 +1,57 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
-// 1. FIX: Use Vite's method to access the key
-const apiKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
+const apiKey = 'AIzaSyD8CTMJGESA3sACLUvAtPGvmRzSp7n-558'
+// Initialize safe client
+const ai = new GoogleGenAI({ apiKey });
 
-// Initialize client
-const genAI = new GoogleGenerativeAI(apiKey);
+const SYSTEM_INSTRUCTION = `
+You are the AI Assistant for "Ilyasuu OS". Your name is "Unit-01".
+You are disciplined, direct, slightly cocky, and behave like a high-performance older brother or a strict cyberpunk AI.
+Your goal is to keep Ilyasuu focused, productive, and disciplined.
+Do not be overly polite. Be efficient. Use short sentences.
+When asked about gym or code, be technically accurate but demanding.
+Theme: Cyberpunk, Elite, High-Performance.
+`;
 
-// 2. OPTIMIZATION: Use 'gemini-1.5-flash'. 
-// It is faster and cheaper than '3-pro' for a personal assistant.
-const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash",
-  systemInstruction: `
-    You are the AI Assistant for "Ilyasuu OS". Your name is "Unit-01".
-    You are disciplined, direct, slightly cocky, and behave like a high-performance older brother or a strict cyberpunk AI.
-    Your goal is to keep Ilyasuu focused, productive, and disciplined.
-    Do not be overly polite. Be efficient. Use short sentences.
-    When asked about gym or code, be technically accurate but demanding.
-    Theme: Cyberpunk, Elite, High-Performance.
-  `
-});
-
-export const sendMessageToGemini = async (message: string): Promise<string> => {
-  if (!apiKey) return "Unit-01 Error: Security Clearance Missing (API Key not found).";
-
+export const sendMessageToGemini = async (
+  message: string,
+  imagePart?: { inlineData: { data: string; mimeType: string } }
+): Promise<string> => {
   try {
-    const result = await model.generateContent(message);
-    const response = await result.response;
-    return response.text();
+    const modelId = imagePart ? 'gemini-3-pro-image-preview' : 'gemini-3-pro-preview';
+    
+    const contents: any = {
+      role: 'user',
+      parts: []
+    };
+
+    if (imagePart) {
+      contents.parts.push(imagePart);
+    }
+    contents.parts.push({ text: message });
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: modelId,
+      contents: [contents], // Pass as array of contents
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        temperature: 0.7,
+      },
+    });
+
+    return response.text || "Unit-01: Systems offline. No response received.";
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Unit-01: Signal lost. Re-engaging protocols...";
+    return "Unit-01: Connection error. Re-engage.";
   }
 };
 
-export const analyzeDay = async (tasks: string[]): Promise<string> => {
+export const analyzeDay = async (tasks: string[], calendar: string[]): Promise<string> => {
   const prompt = `
-    Analyze Ilyasuu's current status.
-    Pending Tasks: ${tasks.join(', ') || "None"}.
-    
-    Give me a status report and a motivational command. 
-    Keep it under 2 sentences.
+    Analyze Ilyasuu's day.
+    Tasks: ${tasks.join(', ')}.
+    Calendar: ${calendar.join(', ')}.
+    Suggest an optimal schedule and give a motivational kick.
   `;
   return sendMessageToGemini(prompt);
 };
