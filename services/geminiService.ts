@@ -9,7 +9,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 // 2. OPTIMIZATION: Use 'gemini-1.5-flash'. 
 // It is faster and cheaper than '3-pro' for a personal assistant.
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-3-pro-preview",
+  model: "gemini-2.5-pro",
   systemInstruction: `
     You are the AI Assistant for "Ilyasuu OS". Your name is "Unit-01".
     Your goal is to keep Ilyasuu focused, productive, and disciplined.
