@@ -741,7 +741,17 @@ const App: React.FC = () => {
       </main>
 
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} onLogout={() => supabase.auth.signOut()} />
-      <AIAssistant />
+      
+      {/* 
+          1. Only show if 'ai' tab is active (Full Screen Mode) 
+          2. Pass the user object so memory works
+      */}
+      {activeTab === 'ai' && session?.user && (
+        <div className="absolute inset-0 z-50 bg-black p-4 md:p-8 md:pl-24 xl:pl-[400px]">
+           <AIAssistant user={session.user} />
+        </div>
+      )}
+      
     </div>
   );
 };

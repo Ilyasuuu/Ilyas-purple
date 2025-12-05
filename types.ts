@@ -5,7 +5,8 @@ export enum Tab {
   CALENDAR = 'CALENDAR',
   GYM = 'GYM',
   JOURNAL = 'JOURNAL',
-  APPS = 'APPS'
+  APPS = 'APPS',
+  AI = 'ai'
 }
 
 export interface Task {
