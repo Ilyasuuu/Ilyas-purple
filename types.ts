@@ -43,9 +43,11 @@ export interface Note {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'model';
-  text: string;
-  timestamp: number;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  session_id?: string;
+  attachment?: string; // Base64 string
 }
 
 export interface UserStats {

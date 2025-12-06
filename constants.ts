@@ -1,6 +1,6 @@
 
 import { Task, GymSession, Note, WorkoutExercise, PersonalRecord, FootballMatch } from './types';
-import { LayoutDashboard, CheckSquare, Calendar as CalendarIcon, Dumbbell, Book, Smartphone } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Calendar as CalendarIcon, Dumbbell, Book, Smartphone, Bot } from 'lucide-react';
 
 // PASTE YOUR IMAGE OR VIDEO URL HERE
 export const WALLPAPER_URL = "https://4kwallpapers.com/images/walls/thumbs_3t/16958.png";
@@ -13,6 +13,7 @@ export const NAV_ITEMS = [
   { id: 'GYM', label: 'Training', icon: Dumbbell },
   { id: 'JOURNAL', label: 'Log', icon: Book },
   { id: 'APPS', label: 'Network', icon: Smartphone },
+  { id: 'ai', label: 'Unit-01', icon: Bot },
 ];
 
 export const MOCK_TASKS: Task[] = [
@@ -112,3 +113,4 @@ export const WARFARE_QUOTES = [
   "Stay hard.",
   "Don't stop when you're tired. Stop when you're done."
 ];
+    

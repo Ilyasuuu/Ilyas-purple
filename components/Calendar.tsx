@@ -82,7 +82,7 @@ const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock
   };
 
   const handleDeleteFromModal = () => {
-    if (editingBlockId && window.confirm('Confirm Deletion of Operation?')) {
+    if (editingBlockId) {
       onDeleteBlock(editingBlockId);
       setIsModalOpen(false);
     }
