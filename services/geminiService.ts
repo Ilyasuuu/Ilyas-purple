@@ -2,9 +2,29 @@
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from "../lib/supabaseClient";
 
-// 1. Initialize Gemini with new SDK and process.env.API_KEY
-const apiKey = "AIzaSyALlGylzyHA4i-K8qaQzW4ugWm9fzV6dBM"
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// 1. Safe API Key Retrieval
+const getAPIKey = () => {
+  try {
+    // Check Vite/Vercel Environment Variables
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      if ((import.meta as any).env.VITE_GOOGLE_API_KEY) return (import.meta as any).env.VITE_GOOGLE_API_KEY;
+      if ((import.meta as any).env.VITE_GEMINI_API_KEY) return (import.meta as any).env.VITE_GEMINI_API_KEY;
+      if ((import.meta as any).env.API_KEY) return (import.meta as any).env.API_KEY;
+    }
+    // Check Standard Node Process
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.VITE_GOOGLE_API_KEY) return process.env.VITE_GOOGLE_API_KEY;
+      if (process.env.API_KEY) return process.env.API_KEY;
+    }
+  } catch (e) {
+    console.warn("Environment variable access failed");
+  }
+  return null;
+};
+
+const apiKey = getAPIKey();
+// Initialize with key if present, otherwise handle error gracefully in calls
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 // 3. The Soul of "Purple"
 const BASE_IDENTITY = `
@@ -108,7 +128,7 @@ export const sendMessageToUnit01 = async (
   sessionId: string,
   attachmentDataURI?: string // Supports Images, PDFs, Audio, Video
 ): Promise<string> => {
-  if (!process.env.API_KEY) return "Purple: API Key is missing. Check your config.";
+  if (!ai || !apiKey) return "Purple: API Key is missing. Please configure VITE_GOOGLE_API_KEY in your Vercel Environment Variables.";
 
   try {
     // 1. SAVE USER MESSAGE (Immediate Save)
@@ -189,7 +209,7 @@ export const sendMessageToUnit01 = async (
 };
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
-  if (!process.env.API_KEY) return "Error: API Key missing.";
+  if (!ai || !apiKey) return "Error: API Key missing.";
 
   try {
     const response = await ai.models.generateContent({
