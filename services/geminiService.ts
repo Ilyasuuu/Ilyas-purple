@@ -2,10 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from "../lib/supabaseClient";
 
-// 1. Use import.meta.env, NOT process.env
-const apiKey = import.meta.env.VITE_GOOGLE_API_KEY || ""; 
-
-// 2. Initialize
+// 1. Initialize Gemini with new SDK and process.env.API_KEY
+const apiKey = "AIzaSyALlGylzyHA4i-K8qaQzW4ugWm9fzV6dBM"
 const ai = new GoogleGenAI({ apiKey: apiKey });
 
 // 3. The Soul of "Purple"
