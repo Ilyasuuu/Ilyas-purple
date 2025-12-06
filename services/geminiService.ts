@@ -131,8 +131,10 @@ export const sendMessageToUnit01 = async (
   if (!ai || !apiKey) return "Purple: API Key is missing. Please configure VITE_GOOGLE_API_KEY in your Vercel Environment Variables.";
 
   try {
-    // 1. SAVE USER MESSAGE (Immediate Save)
-    // CRITICAL: Use 'userMessage', NOT 'response'. This fixes the bug where AI text was saved as user input.
+    // 1. Build Context FIRST (Avoids duplication in history)
+    const contextData = await buildContext(userId);
+
+    // 2. SAVE USER MESSAGE (Immediate Save)
     const { error: userError } = await supabase.from('chat_history').insert({ 
       user_id: userId, 
       role: 'user', 
@@ -142,9 +144,6 @@ export const sendMessageToUnit01 = async (
     });
 
     if (userError) console.error("DB Save Error (User):", userError);
-
-    // 2. Build Context & Send to AI
-    const contextData = await buildContext(userId);
     
     const fullPrompt = `
       ${BASE_IDENTITY}
@@ -190,7 +189,6 @@ export const sendMessageToUnit01 = async (
     const text = response.text || "I heard you, but my response systems are recalibrating.";
 
     // 3. SAVE AI RESPONSE
-    // CRITICAL: Save the generated 'text' with role 'assistant'
     const { error: aiError } = await supabase.from('chat_history').insert({
       user_id: userId,
       role: 'assistant',

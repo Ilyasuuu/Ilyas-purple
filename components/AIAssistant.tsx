@@ -211,7 +211,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   };
 
   const handleSend = async () => {
-    if ((!input.trim() && !attachment) || !user) return;
+    if ((!input.trim() && !attachment) || !user || loading) return; // Added strict loading guard
     const userMsg = input; const currentAttachment = attachment;
     setInput(''); setAttachment(null); setAttachmentName(null);
     
