@@ -18,6 +18,9 @@ interface SessionGroup {
 }
 
 const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData }) => {
+  // Mount tracking
+  const isMounted = useRef(true);
+
   // Session State
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const [sessions, setSessions] = useState<SessionGroup[]>([]);
@@ -37,6 +40,11 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   const [attachmentName, setAttachmentName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
   // --- EXECUTOR ENGINE (ACTIVE AGENT) ---
   const executeAIAction = async (command: any) => {
     if (!command || !command.action) return;
@@ -54,7 +62,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
           due_date: payload.due_date || 'Today'
         });
       } else if (action === 'DELETE_TASK') {
-        // Simple text match delete for now
         await supabase.from('tasks').delete().ilike('title', `%${payload.title_keyword}%`).eq('user_id', user.id);
       } else if (action === 'ADD_SCHEDULE') {
         await supabase.from('schedule_blocks').insert({
@@ -65,7 +72,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
           date: payload.date || new Date().toISOString().split('T')[0]
         });
       } else if (action === 'DELETE_SCHEDULE') {
-        // 1. Find the block first to get ID
         const { data: blocks } = await supabase.from('schedule_blocks')
           .select('id')
           .eq('user_id', user.id)
@@ -77,7 +83,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
            await supabase.from('schedule_blocks').delete().eq('id', blocks[0].id);
         }
       } else if (action === 'RESCHEDULE') {
-        // 1. Find the block
         const { data: blocks } = await supabase.from('schedule_blocks')
           .select('id')
           .eq('user_id', user.id)
@@ -86,7 +91,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
           .limit(1);
         
         if (blocks && blocks.length > 0) {
-           // 2. Update it
            await supabase.from('schedule_blocks')
              .update({
                date: payload.new_date,
@@ -104,7 +108,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
         });
       }
       
-      // Refresh UI immediately
       onRefreshData();
       
     } catch (err) {
@@ -118,7 +121,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     
     const loadSessions = async () => {
       const { data } = await supabase.from('chat_history').select('session_id, content, created_at').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (data) {
+      if (data && isMounted.current) {
         const uniqueSessions = new Map();
         data.forEach(msg => {
           if (msg.session_id && !uniqueSessions.has(msg.session_id)) {
@@ -131,7 +134,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
         setSessions(sessionList);
         if (sessionList.length > 0 && !currentSessionId) setCurrentSessionId(sessionList[0].id);
         else if (!currentSessionId) handleNewSession();
-      } else {
+      } else if (isMounted.current) {
         handleNewSession();
       }
     };
@@ -141,9 +144,28 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   // --- LOAD CHAT ---
   useEffect(() => {
     if (!user || !currentSessionId) return;
+    
     const fetchChat = async () => {
+      // Clear messages first to avoid ghosting
+      if (isMounted.current) setMessages([]);
+
       const { data } = await supabase.from('chat_history').select('*').eq('user_id', user.id).eq('session_id', currentSessionId).order('created_at', { ascending: true });
-      if (data) setMessages(data as ChatMessage[]); else setMessages([]);
+      
+      if (data && isMounted.current) {
+        // Robust Deduplication: Filter out messages that look identical (content + role) within a small time window
+        const uniqueMessages = data.filter((msg, index, self) => 
+          index === self.findIndex((m) => (
+            m.id === msg.id || (
+              m.content === msg.content && 
+              m.role === msg.role && 
+              Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 2000
+            )
+          ))
+        );
+        setMessages(uniqueMessages as ChatMessage[]);
+      } else if (isMounted.current) {
+        setMessages([]);
+      }
     };
     fetchChat();
   }, [currentSessionId, user]);
@@ -152,18 +174,19 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
 
   const handleNewSession = () => {
     const newId = crypto.randomUUID();
-    setCurrentSessionId(newId);
-    setMessages([]);
-    setSessions(prev => [{ id: newId, date: 'Today', preview: 'New Neural Link' }, ...prev]);
+    if (isMounted.current) {
+      setCurrentSessionId(newId);
+      setMessages([]);
+      setSessions(prev => [{ id: newId, date: 'Today', preview: 'New Neural Link' }, ...prev]);
+    }
   };
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Optimistic UI Update
-    setSessions(prev => prev.filter(s => s.id !== sessionId));
-    if (currentSessionId === sessionId) handleNewSession();
-    
-    // DB Delete
+    if (isMounted.current) {
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (currentSessionId === sessionId) handleNewSession();
+    }
     await supabase.from('chat_history').delete().eq('session_id', sessionId);
   };
 
@@ -172,16 +195,16 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     const file = e.target.files?.[0]; if (!file) return;
     const isMedia = file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/') || file.type === 'application/pdf';
     if (isMedia) {
-      const reader = new FileReader(); reader.onloadend = () => { setAttachment(reader.result as string); setAttachmentName(file.name); }; reader.readAsDataURL(file);
+      const reader = new FileReader(); reader.onloadend = () => { if(isMounted.current) { setAttachment(reader.result as string); setAttachmentName(file.name); } }; reader.readAsDataURL(file);
     } else {
-      const reader = new FileReader(); reader.onload = (e) => { const content = e.target?.result as string; setInput(prev => `${prev}${prev ? '\n\n' : ''}[FILE: ${file.name}]\n${content}\n[END FILE]`); }; reader.readAsText(file);
+      const reader = new FileReader(); reader.onload = (e) => { const content = e.target?.result as string; if(isMounted.current) setInput(prev => `${prev}${prev ? '\n\n' : ''}[FILE: ${file.name}]\n${content}\n[END FILE]`); }; reader.readAsText(file);
     }
     e.target.value = '';
   };
 
   const toggleRecording = async () => {
     if (isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') { mediaRecorderRef.current.stop(); setIsRecording(false); } return;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') { mediaRecorderRef.current.stop(); if(isMounted.current) setIsRecording(false); } return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -194,61 +217,56 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
         reader.onloadend = async () => {
           const base64String = reader.result as string;
           const base64Audio = base64String.includes(',') ? base64String.split(',')[1] : base64String;
-          setLoading(true);
+          if(isMounted.current) setLoading(true);
           const text = await transcribeAudio(base64Audio);
-          if (text) setInput(prev => (prev ? prev + " " + text : text));
-          setLoading(false);
+          if (text && isMounted.current) setInput(prev => (prev ? prev + " " + text : text));
+          if(isMounted.current) setLoading(false);
           stream.getTracks().forEach(track => track.stop());
         };
       };
-      mediaRecorder.start(); setIsRecording(true);
+      mediaRecorder.start(); if(isMounted.current) setIsRecording(true);
     } catch (err: any) {
       console.error("Microphone Error:", err); 
       if (err.name === 'NotAllowedError') alert("Microphone access denied. Please enable permissions.");
       else alert("Microphone error: " + err.message);
-      setIsRecording(false);
+      if(isMounted.current) setIsRecording(false);
     }
   };
 
   const handleSend = async () => {
-    if ((!input.trim() && !attachment) || !user || loading) return; // Added strict loading guard
+    if ((!input.trim() && !attachment) || !user || loading) return;
     const userMsg = input; const currentAttachment = attachment;
-    setInput(''); setAttachment(null); setAttachmentName(null);
-    
-    // Optimistic UI
-    const tempMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userMsg, created_at: new Date().toISOString(), session_id: currentSessionId, attachment: currentAttachment || undefined };
-    setMessages(prev => [...prev, tempMsg]);
-    setLoading(true);
+    if(isMounted.current) {
+        setInput(''); setAttachment(null); setAttachmentName(null);
+        // Optimistic UI
+        const tempMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userMsg, created_at: new Date().toISOString(), session_id: currentSessionId, attachment: currentAttachment || undefined };
+        setMessages(prev => [...prev, tempMsg]);
+        setLoading(true);
+    }
 
     // AI Request
     let responseText = await sendMessageToUnit01(user.id, userMsg, currentSessionId, currentAttachment || undefined);
 
     // --- PARSE & EXECUTE ACTIONS ---
-    // Regex to find JSON block: ```json { ... } ```
     const jsonMatch = responseText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch && jsonMatch[1]) {
         try {
             const command = JSON.parse(jsonMatch[1]);
             await executeAIAction(command);
-            
-            // Clean response: Remove the JSON block so user doesn't see raw code
             responseText = responseText.replace(jsonMatch[0], '').trim();
-            
-            // If response is empty after cleaning (AI only sent JSON), add confirmation
             if (!responseText) responseText = "Action executed successfully.";
-            
-            // Update the last assistant message in DB (inserted by sendMessageToUnit01) to remove JSON clutter
             await supabase.from('chat_history').update({ content: responseText }).eq('session_id', currentSessionId).order('created_at', { ascending: false }).limit(1);
-
         } catch (e) {
             console.error("Failed to parse/execute AI command", e);
         }
     }
 
-    const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: responseText, created_at: new Date().toISOString(), session_id: currentSessionId };
-    setMessages(prev => [...prev, aiMsg]);
-    setLoading(false);
-    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsg.substring(0, 30) + '...' } : s));
+    if(isMounted.current) {
+        const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: responseText, created_at: new Date().toISOString(), session_id: currentSessionId };
+        setMessages(prev => [...prev, aiMsg]);
+        setLoading(false);
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsg.substring(0, 30) + '...' } : s));
+    }
   };
 
   const renderAttachmentPreview = (dataUri: string) => {

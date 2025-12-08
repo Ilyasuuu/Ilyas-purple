@@ -23,7 +23,6 @@ const getAPIKey = () => {
 };
 
 const apiKey = getAPIKey();
-// Initialize with key if present, otherwise handle error gracefully in calls
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 // 3. The Soul of "Purple"
@@ -126,19 +125,19 @@ export const sendMessageToUnit01 = async (
   userId: string, 
   userMessage: string, 
   sessionId: string,
-  attachmentDataURI?: string // Supports Images, PDFs, Audio, Video
+  attachmentDataURI?: string
 ): Promise<string> => {
   if (!ai || !apiKey) return "Purple: API Key is missing. Please configure VITE_GOOGLE_API_KEY in your Vercel Environment Variables.";
 
   try {
-    // 1. Build Context FIRST (Avoids duplication in history)
+    // 1. Build Context FIRST (Avoids duplicating current msg in history context)
     const contextData = await buildContext(userId);
 
-    // 2. SAVE USER MESSAGE (Immediate Save)
+    // 2. SAVE USER MESSAGE (Immediate Save - Critical Step)
     const { error: userError } = await supabase.from('chat_history').insert({ 
       user_id: userId, 
       role: 'user', 
-      content: userMessage, // Correct variable
+      content: userMessage, 
       session_id: sessionId,
       attachment: attachmentDataURI || null
     });
@@ -173,7 +172,7 @@ export const sendMessageToUnit01 = async (
           }
         });
       } else {
-        // Fallback
+        // Fallback if parsing fails
         response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: fullPrompt,
@@ -188,11 +187,11 @@ export const sendMessageToUnit01 = async (
 
     const text = response.text || "I heard you, but my response systems are recalibrating.";
 
-    // 3. SAVE AI RESPONSE
+    // 3. SAVE AI RESPONSE (Final Step)
     const { error: aiError } = await supabase.from('chat_history').insert({
       user_id: userId,
       role: 'assistant',
-      content: text, // The AI's response
+      content: text, 
       session_id: sessionId
     });
 
