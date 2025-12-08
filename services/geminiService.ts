@@ -5,11 +5,11 @@ const getAPIKey = () => {
   try {
     // Check Vite/Vercel Environment Variables
     if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-      if ((import.meta as any).env.GROQ_API_KEY) return (import.meta as any).env.GROQ_API_KEY;
+      if ((import.meta as any).env.VITE_GROQ_API_KEY) return (import.meta as any).env.VITE_GROQ_API_KEY;
     }
     // Check Standard Node Process
     if (typeof process !== 'undefined' && process.env) {
-      if (process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
+      if (process.env.VITE_GROQ_API_KEY) return process.env.VITE_GROQ_API_KEY;
     }
   } catch (e) {
     console.warn("Environment variable access failed");
