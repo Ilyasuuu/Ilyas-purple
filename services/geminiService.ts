@@ -1,20 +1,15 @@
-
-import { GoogleGenAI } from "@google/genai";
 import { supabase } from "../lib/supabaseClient";
 
-// 1. Safe API Key Retrieval
+// 1. Safe API Key Retrieval for Groq
 const getAPIKey = () => {
   try {
     // Check Vite/Vercel Environment Variables
     if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-      if ((import.meta as any).env.VITE_GOOGLE_API_KEY) return (import.meta as any).env.VITE_GOOGLE_API_KEY;
-      if ((import.meta as any).env.VITE_GEMINI_API_KEY) return (import.meta as any).env.VITE_GEMINI_API_KEY;
-      if ((import.meta as any).env.API_KEY) return (import.meta as any).env.API_KEY;
+      if ((import.meta as any).env.GROQ_API_KEY) return (import.meta as any).env.GROQ_API_KEY;
     }
     // Check Standard Node Process
     if (typeof process !== 'undefined' && process.env) {
-      if (process.env.VITE_GOOGLE_API_KEY) return process.env.VITE_GOOGLE_API_KEY;
-      if (process.env.API_KEY) return process.env.API_KEY;
+      if (process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
     }
   } catch (e) {
     console.warn("Environment variable access failed");
@@ -23,7 +18,8 @@ const getAPIKey = () => {
 };
 
 const apiKey = getAPIKey();
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 
 // 3. The Soul of "Purple"
 const BASE_IDENTITY = `
@@ -86,9 +82,10 @@ const buildContext = async (userId: string) => {
     .order('created_at', { ascending: true }); // Oldest to newest for linear reading
 
   // Format the history
-  const historyText = history?.map(msg => 
-    `[${new Date(msg.created_at).toLocaleDateString()}] ${msg.role === 'user' ? 'ILYASUU' : 'PURPLE'}: ${msg.content}`
-  ).join('\n') || "No prior memory.";
+  const historyMessages = history?.map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'assistant',
+    content: msg.content
+  })) || [];
 
   // Get Current Time Context
   const now = new Date();
@@ -97,8 +94,8 @@ const buildContext = async (userId: string) => {
   Time: ${now.toLocaleTimeString()}
   `;
 
-  // Construct the "Context Packet"
-  return `
+  // Construct the "System Context Packet"
+  const systemContext = `
     ${timeContext}
 
     [CURRENT USER CONTEXT]
@@ -108,16 +105,13 @@ const buildContext = async (userId: string) => {
     - Hydration: ${stats?.hydration_current || 0}ml
     
     [OPEN LOOPS (TASKS)]
-    ${tasks?.map(t => `- ${t.title} (${t.category})`).join('\n') || "Nothing pending."}
+    ${tasks?.map((t: any) => `- ${t.title} (${t.category})`).join('\n') || "Nothing pending."}
     
     [RECENT ACTIVITY (GYM)]
-    ${workouts?.map(w => `- ${w.session_name} (${w.total_volume}kg vol)`).join('\n') || "No recent logs."}
-    
-    [LONG TERM MEMORY (FULL CONVERSATION HISTORY)]
-    ${historyText}
-    
-    [USER INPUT FOLLOWS]
+    ${workouts?.map((w: any) => `- ${w.session_name} (${w.total_volume}kg vol)`).join('\n') || "No recent logs."}
   `;
+
+  return { systemContext, historyMessages };
 };
 
 // 5. The Main Function
@@ -127,13 +121,13 @@ export const sendMessageToUnit01 = async (
   sessionId: string,
   attachmentDataURI?: string
 ): Promise<string> => {
-  if (!ai || !apiKey) return "Purple: API Key is missing. Please configure VITE_GOOGLE_API_KEY in your Vercel Environment Variables.";
+  if (!apiKey) return "Purple: Groq API Key is missing. Please configure VITE_GROQ_API_KEY in your Vercel Environment Variables.";
 
   try {
-    // 1. Build Context FIRST (Avoids duplicating current msg in history context)
-    const contextData = await buildContext(userId);
+    // 1. Build Context FIRST
+    const { systemContext, historyMessages } = await buildContext(userId);
 
-    // 2. SAVE USER MESSAGE (Immediate Save - Critical Step)
+    // 2. SAVE USER MESSAGE (Immediate Save)
     const { error: userError } = await supabase.from('chat_history').insert({ 
       user_id: userId, 
       role: 'user', 
@@ -144,50 +138,54 @@ export const sendMessageToUnit01 = async (
 
     if (userError) console.error("DB Save Error (User):", userError);
     
-    const fullPrompt = `
-      ${BASE_IDENTITY}
-      
-      ${contextData}
-      
-      ILYASUU: ${userMessage}
-    `;
+    // Construct Message Array for Groq
+    const messages = [
+      { role: "system", content: BASE_IDENTITY + "\n\n" + systemContext },
+      ...historyMessages, // Full History
+    ];
 
-    let response;
-    
+    // Handle Current Message (Text + Optional Image)
     if (attachmentDataURI) {
-      // Parse Data URI: data:[<mediatype>][;base64],<data>
-      const matches = attachmentDataURI.match(/^data:(.+);base64,(.+)$/);
-      
-      if (matches && matches.length === 3) {
-        const mimeType = matches[1];
-        const base64Data = matches[2];
-        
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash", 
-          contents: {
-            parts: [
-              { inlineData: { mimeType: mimeType, data: base64Data } },
-              { text: fullPrompt }
-            ]
-          }
-        });
-      } else {
-        // Fallback if parsing fails
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: fullPrompt,
-        });
-      }
-    } else {
-      response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: fullPrompt,
+      // Groq Vision Format
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: userMessage },
+          { type: "image_url", image_url: { url: attachmentDataURI } }
+        ] as any
       });
+    } else {
+      messages.push({ role: "user", content: userMessage });
     }
 
-    const text = response.text || "I heard you, but my response systems are recalibrating.";
+    // Determine Model: Vision model if image present, else standard high-performance model
+    const model = attachmentDataURI ? "llama-3.2-90b-vision-preview" : "llama-3.3-70b-versatile";
 
-    // 3. SAVE AI RESPONSE (Final Step)
+    // 3. Call Groq API
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 1024,
+        stream: false
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || "Groq API Failed");
+    }
+
+    const data = await response.json();
+    const text = data.choices[0]?.message?.content || "I heard you, but my response systems are recalibrating.";
+
+    // 4. SAVE AI RESPONSE
     const { error: aiError } = await supabase.from('chat_history').insert({
       user_id: userId,
       role: 'assistant',
@@ -199,31 +197,46 @@ export const sendMessageToUnit01 = async (
     
     return text;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Purple Brain Error:", error);
-    return "Purple: Neural Link unstable. Retrying connection... (Error: " + error + ")";
+    return `Purple: Neural Link unstable. Retrying connection... (Error: ${error.message || error})`;
   }
 };
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
-  if (!ai || !apiKey) return "Error: API Key missing.";
+  if (!apiKey) return "Error: API Key missing.";
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: {
-        parts: [
-          { text: "Transcribe the following audio exactly as spoken. Do not add any commentary, just the text." },
-          {
-            inlineData: {
-              mimeType: "audio/webm",
-              data: base64Audio
-            }
-          }
-        ]
-      }
+    // Convert Base64 to Blob for FormData
+    const byteCharacters = atob(base64Audio);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'audio/webm' });
+    const file = new File([blob], "recording.webm", { type: 'audio/webm' });
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("model", "distil-whisper-large-v3-en");
+    formData.append("response_format", "json");
+
+    const response = await fetch(GROQ_AUDIO_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: formData
     });
-    return response.text || "";
+
+    if (!response.ok) {
+      throw new Error("Transcription Failed");
+    }
+
+    const data = await response.json();
+    return data.text || "";
+
   } catch (error) {
     console.error("Transcription Error:", error);
     return "";
