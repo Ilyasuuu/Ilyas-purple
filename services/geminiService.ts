@@ -159,7 +159,7 @@ export const sendMessageToUnit01 = async (
     }
 
     // Determine Model: Vision model if image present, else standard high-performance model
-    const model = attachmentDataURI ? "llama-3.2-90b-vision-preview" : "llama-3.3-70b-versatile";
+    const model = attachmentDataURI ? "llama-3.2-90b-vision-preview" : "llama-4-maverick-17b-128e-instruct";
 
     // 3. Call Groq API
     const response = await fetch(GROQ_API_URL, {

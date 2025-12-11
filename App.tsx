@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
-import { Tab, Task, UserStats, GymSession, Biometrics, Note, ScheduleBlock, PersonalRecord, WorkoutLog, WorkoutHistoryItem, PhysiqueEntry, PomoState, FocusMode } from './types';
+import { Tab, Task, UserStats, GymSession, Biometrics, Note, ScheduleBlock, PersonalRecord, WorkoutLog, WorkoutHistoryItem, PhysiqueEntry, PomoState, FocusMode, TaskFrequency } from './types';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
 import Dashboard from './components/Dashboard';
@@ -16,11 +16,10 @@ import SnowEffect from './components/SnowEffect';
 import Auth from './components/Auth';
 import { WALLPAPER_URL, WEEKLY_WORKOUTS, INITIAL_PRS } from './constants';
 
-// --- HELPER: WEEKLY RESET ---
 const getStartOfCurrentWeek = () => {
   const now = new Date();
-  const day = now.getDay(); // 0 (Sun) - 6 (Sat)
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  const day = now.getDay(); 
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(now.setDate(diff));
   monday.setHours(0, 0, 0, 0);
   return monday.getTime();
@@ -42,7 +41,6 @@ const App: React.FC = () => {
   const [isSnowing, setIsSnowing] = useState(false);
   const XP_PER_LEVEL = 500;
 
-  // --- STATE ---
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<UserStats>({
     xp: 0, level: 1, streak: 1, focusTime: 0, lastVisit: new Date().toDateString(), hydration: 0
@@ -57,7 +55,6 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [personalRecords, setPersonalRecords] = useState<PersonalRecord[]>(INITIAL_PRS);
   
-  // Schedule
   const [viewDate, setViewDate] = useState(new Date()); 
   const [viewSchedule, setViewSchedule] = useState<ScheduleBlock[]>([]); 
   const [todaysSchedule, setTodaysSchedule] = useState<ScheduleBlock[]>([]); 
@@ -65,10 +62,8 @@ const App: React.FC = () => {
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
   const [physiqueLog, setPhysiqueLog] = useState<PhysiqueEntry[]>([]);
 
-  // Dashboard Focus (Stopwatch)
   const [isFocusing, setIsFocusing] = useState(false);
 
-  // --- GLOBAL POMODORO STATE (Lifted from Tasks) ---
   const [pomoState, setPomoState] = useState<PomoState>({
     mode: 'STANDARD',
     timeLeft: 25 * 60,
@@ -77,7 +72,6 @@ const App: React.FC = () => {
     status: 'IDLE'
   });
 
-  // --- AUTH LISTENER ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -100,18 +94,15 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // --- REFRESH DATA FUNCTION (EXPOSED TO AI) ---
   const refreshData = useCallback(async () => {
     if (!session?.user) return;
     setLoadingData(true);
     try {
       const userId = session.user.id;
 
-      // 1. STATS
       const { data: statsData, error: statsError } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
       
       if (statsError && statsError.code === 'PGRST116') {
-        // Init default stats logic... (omitted for brevity, assume existing user mostly)
         const defaultStats = {
             user_id: userId,
             xp: 0, level: 1, streak: 1, focus_time: 0, last_visit: new Date().toDateString(),
@@ -120,7 +111,6 @@ const App: React.FC = () => {
         await supabase.from('user_stats').insert(defaultStats);
         setStats({ xp: 0, level: 1, streak: 1, focusTime: 0, lastVisit: defaultStats.last_visit, hydration: 0 });
       } else if (statsData) {
-        // Streak Logic
         const today = new Date().toDateString();
         let newStreak = statsData.streak;
         if (statsData.last_visit !== today) {
@@ -130,7 +120,6 @@ const App: React.FC = () => {
             else newStreak = 1;
             await supabase.from('user_stats').update({ streak: newStreak, last_visit: today }).eq('user_id', userId);
         }
-        // Hydration Logic
         let currentHydration = statsData.hydration_current || 0;
         if (statsData.hydration_date !== today) {
             currentHydration = 0;
@@ -151,15 +140,66 @@ const App: React.FC = () => {
         });
       }
 
-      // 2. TASKS
+      // --- TASK CLEANUP & PARSING LOGIC ---
       const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false });
       if (tasksData) {
-        setTasks(tasksData.map((t: any) => ({
-          id: t.id, title: t.title, status: t.status, category: t.category, dueDate: t.due_date
+        const now = new Date();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const tasksToKeep: any[] = [];
+        const tasksToDeleteIds: string[] = [];
+
+        tasksData.forEach((t: any) => {
+          const taskDate = t.created_at ? new Date(t.created_at) : new Date(0);
+          
+          // Parse Frequency from Category (Stored as "FREQUENCY::CATEGORY")
+          let frequency: TaskFrequency = 'DAILY';
+          let category = t.category;
+
+          if (t.category && t.category.includes('::')) {
+             const parts = t.category.split('::');
+             frequency = parts[0] as TaskFrequency;
+             category = parts[1];
+          }
+
+          // --- AUTO-DELETION RULES ---
+          let shouldDelete = false;
+
+          if (frequency === 'DAILY') {
+             // Daily tasks reset at Midnight (if created before today)
+             if (taskDate < todayStart) shouldDelete = true;
+          } else if (frequency === 'WEEKLY') {
+             // Weekly goals disappear after 7 days
+             const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+             if (taskDate < sevenDaysAgo) shouldDelete = true;
+          } else if (frequency === 'MONTHLY') {
+             // Monthly goals disappear after 30 days
+             const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+             if (taskDate < thirtyDaysAgo) shouldDelete = true;
+          }
+
+          if (shouldDelete) {
+             tasksToDeleteIds.push(t.id);
+          } else {
+             // Add parsed task to state
+             tasksToKeep.push({
+               ...t,
+               category: category,
+               frequency: frequency
+             });
+          }
+        });
+
+        if (tasksToDeleteIds.length > 0) {
+          await supabase.from('tasks').delete().in('id', tasksToDeleteIds);
+        }
+
+        setTasks(tasksToKeep.map((t: any) => ({
+          id: t.id, title: t.title, status: t.status, category: t.category, dueDate: t.due_date, frequency: t.frequency
         })));
       }
 
-      // 3. SCHEDULE
       const { data: scheduleData } = await supabase.from('schedule_blocks').select('*').eq('user_id', userId);
       if (scheduleData) {
           const blocks: ScheduleBlock[] = scheduleData.map((b: any) => ({
@@ -167,10 +207,8 @@ const App: React.FC = () => {
           }));
           const todayStr = new Date().toISOString().split('T')[0];
           setTodaysSchedule(blocks.filter(b => b.date === todayStr));
-          // Note: viewSchedule updates via separate effect dependent on viewDate
       }
 
-      // 4. LOGS
       const { data: logsData } = await supabase.from('neural_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false });
       if (logsData) {
         setNotes(logsData.map((n: any) => ({
@@ -178,13 +216,11 @@ const App: React.FC = () => {
         })));
       }
 
-      // 5. PHYSIQUE
       const { data: physiqueData } = await supabase.from('physique_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false });
       if (physiqueData) {
         setPhysiqueLog(physiqueData.map((p: any) => ({ id: p.id, imageUrl: p.image_url, stats: p.stats, date: p.date })));
       }
 
-      // 6. TRAINING
       const { data: trainingData } = await supabase.from('training_logs').select('*').eq('user_id', userId);
       if (trainingData) {
           const historyItems: WorkoutHistoryItem[] = [];
@@ -217,12 +253,10 @@ const App: React.FC = () => {
     }
   }, [session]);
 
-  // Initial Data Sync
   useEffect(() => {
     refreshData();
   }, [refreshData]);
 
-  // --- VIEW SCHEDULE UPDATE ---
   useEffect(() => {
     if (!session) return;
     const loadViewSchedule = async () => {
@@ -237,9 +271,8 @@ const App: React.FC = () => {
        }
     };
     loadViewSchedule();
-  }, [viewDate, session, tasks]); // Added tasks as dependency to trigger refresh if AI adds block
+  }, [viewDate, session, tasks]);
 
-  // --- WEEKLY GYM SYNC ---
   useEffect(() => {
     const startOfWeek = getStartOfCurrentWeek();
     setGymSessions(prevSessions => {
@@ -254,7 +287,6 @@ const App: React.FC = () => {
     });
   }, [workoutHistory]);
 
-  // --- DB HELPERS ---
   const updateStatsDB = async (newStats: Partial<UserStats>) => {
     if (!session) return;
     await supabase.from('user_stats').update({ xp: newStats.xp, level: newStats.level, focus_time: newStats.focusTime }).eq('user_id', session.user.id);
@@ -270,7 +302,6 @@ const App: React.FC = () => {
     await supabase.from('user_stats').update({ hydration_current: newTotal, hydration_date: new Date().toDateString() }).eq('user_id', session.user.id);
   };
 
-  // --- FOCUS LOGIC ---
   useEffect(() => {
     let interval: any;
     if (isFocusing) {
@@ -288,8 +319,6 @@ const App: React.FC = () => {
   }, [isFocusing]);
   const toggleFocus = () => setIsFocusing(!isFocusing);
 
-  // --- POMODORO LOGIC ---
-  const playBeep = () => { /* Audio logic... */ };
   useEffect(() => {
     let interval: any = null;
     if (pomoState.isActive && pomoState.timeLeft > 0) {
@@ -322,20 +351,34 @@ const App: React.FC = () => {
     });
   };
 
-  // --- CRUD HANDLERS (Simplified for brevity) ---
   const handleAddTask = async (newTask: Task) => {
     if (!session) return;
-    const { data } = await supabase.from('tasks').insert({ user_id: session.user.id, title: newTask.title, status: newTask.status, category: newTask.category, due_date: newTask.dueDate }).select().single();
-    if (data) setTasks(prev => [{ ...newTask, id: data.id }, ...prev]);
+    
+    // Encode frequency into category to avoid schema changes
+    // Format: "FREQUENCY::CATEGORY" (e.g., "DAILY::WORK")
+    const encodedCategory = `${newTask.frequency}::${newTask.category}`;
+
+    const { data } = await supabase.from('tasks').insert({ 
+      user_id: session.user.id, 
+      title: newTask.title, 
+      status: newTask.status, 
+      category: encodedCategory, // Save Encoded
+      due_date: newTask.dueDate 
+    }).select().single();
+
+    if (data) {
+      // Decode for local state
+      setTasks(prev => [{ ...newTask, id: data.id }, ...prev]);
+    }
   };
   const handleToggleTask = async (id: string) => {
     const task = tasks.find(t => t.id === id); if (!task || !session) return;
     const newStatus = task.status === 'DONE' ? 'TODO' : 'DONE';
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
     await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
-    // XP
     setStats(s => {
       let newXp = s.xp;
+      // Add XP on check, remove on uncheck (simple toggle logic)
       if (newStatus === 'DONE') newXp += 50; else newXp = Math.max(0, newXp - 50);
       const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
       updateStatsDB(newStats);
@@ -343,12 +386,11 @@ const App: React.FC = () => {
     });
   };
   const handleDeleteTask = async (id: string) => {
-    const task = tasks.find(t => t.id === id); if (!task) return;
+    // 1. Update UI immediately
     setTasks(prev => prev.filter(t => t.id !== id));
+    // 2. Delete from DB
     await supabase.from('tasks').delete().eq('id', id);
-    if (task.status === 'DONE') {
-       setStats(s => { const newXp = Math.max(0, s.xp - 50); const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; updateStatsDB(newStats); return newStats; });
-    }
+    // 3. DO NOT SUBTRACT XP (As per new requirement)
   };
   const handleEditTask = async (id: string, newTitle: string) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, title: newTitle } : t));

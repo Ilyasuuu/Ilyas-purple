@@ -4,7 +4,7 @@ import { LayoutDashboard, CheckSquare, Calendar as CalendarIcon, Dumbbell, Book,
 
 // PASTE YOUR IMAGE OR VIDEO URL HERE
 export const WALLPAPER_URL = "https://4kwallpapers.com/images/walls/thumbs_3t/16958.png";
-export const DEFAULT_ANCHOR_URL = "https://media.giphy.com/media/26AHONQ79FdWZhAI0/giphy.gif";
+export const DEFAULT_ANCHOR_URL = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMHg1ZHAxNjBpNjJkNjcxdzMweWplcmwzcWpjOXJ2YzJhNWxvNTNpdCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/lsdd32H2EqjXGRhWu4/giphy.gif";
 
 export const NAV_ITEMS = [
   { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
@@ -17,10 +17,10 @@ export const NAV_ITEMS = [
 ];
 
 export const MOCK_TASKS: Task[] = [
-  { id: '1', title: 'Complete system architecture', status: 'IN_PROGRESS', category: 'WORK', dueDate: 'Today' },
-  { id: '2', title: 'Heavy Leg Day', status: 'TODO', category: 'GYM', dueDate: '19:00' },
-  { id: '3', title: 'Review quarterly goals', status: 'DONE', category: 'PERSONAL' },
-  { id: '4', title: 'Meditation (20m)', status: 'TODO', category: 'PERSONAL', dueDate: '22:00' },
+  { id: '1', title: 'Complete system architecture', status: 'IN_PROGRESS', category: 'WORK', frequency: 'WEEKLY', dueDate: 'Today' },
+  { id: '2', title: 'Heavy Leg Day', status: 'TODO', category: 'GYM', frequency: 'DAILY', dueDate: '19:00' },
+  { id: '3', title: 'Review quarterly goals', status: 'DONE', category: 'PERSONAL', frequency: 'MONTHLY' },
+  { id: '4', title: 'Meditation (20m)', status: 'TODO', category: 'PERSONAL', frequency: 'DAILY', dueDate: '22:00' },
 ];
 
 export const WEEKLY_WORKOUTS: GymSession[] = [
@@ -113,4 +113,3 @@ export const WARFARE_QUOTES = [
   "Stay hard.",
   "Don't stop when you're tired. Stop when you're done."
 ];
-    

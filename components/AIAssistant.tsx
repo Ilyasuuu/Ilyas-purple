@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Cpu, Database, Terminal, Zap, Mic, Paperclip, Plus, MessageSquare, Image as ImageIcon, Trash2, FileText, Music, Video, File } from 'lucide-react';
+import { X, Send, Cpu, Database, Plus, Mic, Paperclip, Trash2, FileText, Music, Video, File, Zap, ChevronRight } from 'lucide-react';
 import { sendMessageToUnit01, transcribeAudio } from '../services/geminiService';
 import { supabase } from '../lib/supabaseClient';
 import { ChatMessage } from '../types';
@@ -8,7 +8,7 @@ import { ChatMessage } from '../types';
 interface AIAssistantProps {
   onClose: () => void;
   user: any;
-  onRefreshData: () => void; // New prop for executing actions
+  onRefreshData: () => void;
 }
 
 interface SessionGroup {
@@ -17,25 +17,114 @@ interface SessionGroup {
   preview: string;
 }
 
-const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData }) => {
-  // Mount tracking
-  const isMounted = useRef(true);
+// --- MARKDOWN RENDERER COMPONENT ---
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
+  // 1. Split by Code Blocks (```)
+  const sections = content.split(/```/g);
 
-  // Session State
+  const parseInline = (text: string) => {
+    // Bold (**text**)
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={index} className="text-purple-300 font-bold">{part.slice(2, -2)}</strong>;
+      }
+      // Inline Code (`text`)
+      const codeParts = part.split(/(`.*?`)/g);
+      return codeParts.map((subPart, subIndex) => {
+        if (subPart.startsWith('`') && subPart.endsWith('`')) {
+          return <code key={`${index}-${subIndex}`} className="bg-white/10 text-purple-200 px-1.5 py-0.5 rounded text-xs font-mono">{subPart.slice(1, -1)}</code>;
+        }
+        return subPart;
+      });
+    });
+  };
+
+  const formatTextSection = (text: string) => {
+    return text.split('\n').map((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed) return <div key={i} className="h-2" />; // Spacer
+
+      // Headings
+      if (trimmed.startsWith('### ')) return <h3 key={i} className="text-lg font-bold text-purple-300 mt-4 mb-2 font-orbitron">{parseInline(trimmed.replace('### ', ''))}</h3>;
+      if (trimmed.startsWith('## ')) return <h2 key={i} className="text-xl font-bold text-white mt-6 mb-3 border-b border-purple-500/30 pb-1 font-orbitron">{parseInline(trimmed.replace('## ', ''))}</h2>;
+      if (trimmed.startsWith('# ')) return <h1 key={i} className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mt-6 mb-4 font-orbitron">{parseInline(trimmed.replace('# ', ''))}</h1>;
+
+      // Lists
+      if (trimmed.startsWith('- ')) {
+        return (
+            <div key={i} className="flex items-start gap-2 mb-1 pl-2">
+                <div className="mt-2 w-1.5 h-1.5 rounded-full bg-purple-500 flex-shrink-0" />
+                <p className="text-gray-300 leading-relaxed">{parseInline(trimmed.replace('- ', ''))}</p>
+            </div>
+        );
+      }
+      if (trimmed.match(/^\d+\. /)) {
+        return (
+            <div key={i} className="flex items-start gap-2 mb-1 pl-2">
+                <span className="text-purple-400 font-mono font-bold text-xs mt-1">{trimmed.split('.')[0]}.</span>
+                <p className="text-gray-300 leading-relaxed">{parseInline(trimmed.replace(/^\d+\. /, ''))}</p>
+            </div>
+        );
+      }
+
+      // Blockquote
+      if (trimmed.startsWith('> ')) {
+          return (
+              <div key={i} className="border-l-2 border-purple-500 pl-4 py-1 my-2 bg-purple-900/10 italic text-gray-400">
+                  {parseInline(trimmed.replace('> ', ''))}
+              </div>
+          );
+      }
+
+      // Standard Paragraph
+      return <p key={i} className="mb-2 text-gray-200 leading-relaxed">{parseInline(line)}</p>;
+    });
+  };
+
+  return (
+    <div className="space-y-1">
+      {sections.map((section, index) => {
+        // Even indices are text, Odd are code blocks
+        if (index % 2 === 1) {
+          // Detect language (first line)
+          const firstLineBreak = section.indexOf('\n');
+          const lang = firstLineBreak > -1 ? section.slice(0, firstLineBreak).trim() : '';
+          const code = firstLineBreak > -1 ? section.slice(firstLineBreak + 1) : section;
+
+          return (
+            <div key={index} className="my-4 rounded-lg overflow-hidden border border-white/10 bg-[#0a0a0f] shadow-lg">
+                <div className="bg-white/5 px-3 py-1 text-[10px] font-mono text-gray-500 uppercase flex justify-between">
+                    <span>{lang || 'CODE'}</span>
+                    <span>RAW</span>
+                </div>
+                <div className="p-4 overflow-x-auto">
+                    <pre className="font-mono text-xs text-green-400 whitespace-pre-wrap">{code.trim()}</pre>
+                </div>
+            </div>
+          );
+        } else {
+          return <div key={index}>{formatTextSection(section)}</div>;
+        }
+      })}
+    </div>
+  );
+};
+
+// --- MAIN COMPONENT ---
+const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData }) => {
+  const isMounted = useRef(true);
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const [sessions, setSessions] = useState<SessionGroup[]>([]);
-  
-  // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Input Features
+  // Input State
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  
   const [attachment, setAttachment] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,126 +134,62 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     return () => { isMounted.current = false; };
   }, []);
 
-  // --- EXECUTOR ENGINE (ACTIVE AGENT) ---
+  // --- EXECUTOR ENGINE ---
   const executeAIAction = async (command: any) => {
     if (!command || !command.action) return;
-    
-    console.log("EXECUTING AI ACTION:", command);
     const { action, payload } = command;
 
     try {
       if (action === 'CREATE_TASK') {
-        await supabase.from('tasks').insert({
-          user_id: user.id,
-          title: payload.title,
-          category: payload.category || 'SYSTEM',
-          status: payload.status || 'TODO',
-          due_date: payload.due_date || 'Today'
-        });
+        await supabase.from('tasks').insert({ user_id: user.id, title: payload.title, category: payload.category || 'SYSTEM', status: payload.status || 'TODO', due_date: payload.due_date || 'Today' });
       } else if (action === 'DELETE_TASK') {
         await supabase.from('tasks').delete().ilike('title', `%${payload.title_keyword}%`).eq('user_id', user.id);
       } else if (action === 'ADD_SCHEDULE') {
-        await supabase.from('schedule_blocks').insert({
-          user_id: user.id,
-          title: payload.title,
-          start_time: payload.start_time,
-          type: payload.type || 'WORK',
-          date: payload.date || new Date().toISOString().split('T')[0]
-        });
+        await supabase.from('schedule_blocks').insert({ user_id: user.id, title: payload.title, start_time: payload.start_time, type: payload.type || 'WORK', date: payload.date || new Date().toISOString().split('T')[0] });
       } else if (action === 'DELETE_SCHEDULE') {
-        const { data: blocks } = await supabase.from('schedule_blocks')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('date', payload.date)
-          .ilike('title', `%${payload.title_keyword}%`)
-          .limit(1);
-        
-        if (blocks && blocks.length > 0) {
-           await supabase.from('schedule_blocks').delete().eq('id', blocks[0].id);
-        }
-      } else if (action === 'RESCHEDULE') {
-        const { data: blocks } = await supabase.from('schedule_blocks')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('date', payload.current_date)
-          .ilike('title', `%${payload.title_keyword}%`)
-          .limit(1);
-        
-        if (blocks && blocks.length > 0) {
-           await supabase.from('schedule_blocks')
-             .update({
-               date: payload.new_date,
-               start_time: payload.new_start_time
-             })
-             .eq('id', blocks[0].id);
-        }
+        const { data: blocks } = await supabase.from('schedule_blocks').select('id').eq('user_id', user.id).eq('date', payload.date).ilike('title', `%${payload.title_keyword}%`).limit(1);
+        if (blocks && blocks.length > 0) await supabase.from('schedule_blocks').delete().eq('id', blocks[0].id);
       } else if (action === 'LOG_NOTE') {
-        await supabase.from('neural_logs').insert({
-          user_id: user.id,
-          title: payload.title,
-          content: payload.content,
-          mood: payload.mood || 'ZEN',
-          is_encrypted: false
-        });
+        await supabase.from('neural_logs').insert({ user_id: user.id, title: payload.title, content: payload.content, mood: payload.mood || 'ZEN', is_encrypted: false });
       }
-      
       onRefreshData();
-      
     } catch (err) {
       console.error("AI Action Failed:", err);
     }
   };
 
-  // --- INITIALIZATION ---
+  // --- SESSION MGMT ---
   useEffect(() => {
     if (!user) return;
-    
     const loadSessions = async () => {
       const { data } = await supabase.from('chat_history').select('session_id, content, created_at').eq('user_id', user.id).order('created_at', { ascending: false });
       if (data && isMounted.current) {
         const uniqueSessions = new Map();
         data.forEach(msg => {
           if (msg.session_id && !uniqueSessions.has(msg.session_id)) {
-            uniqueSessions.set(msg.session_id, {
-              id: msg.session_id, date: new Date(msg.created_at).toLocaleDateString(), preview: msg.content.substring(0, 30) + '...'
-            });
+            uniqueSessions.set(msg.session_id, { id: msg.session_id, date: new Date(msg.created_at).toLocaleDateString(), preview: msg.content.substring(0, 30) + '...' });
           }
         });
         const sessionList = Array.from(uniqueSessions.values());
         setSessions(sessionList);
         if (sessionList.length > 0 && !currentSessionId) setCurrentSessionId(sessionList[0].id);
         else if (!currentSessionId) handleNewSession();
-      } else if (isMounted.current) {
-        handleNewSession();
-      }
+      } else handleNewSession();
     };
     loadSessions();
   }, [user]);
 
-  // --- LOAD CHAT ---
   useEffect(() => {
     if (!user || !currentSessionId) return;
-    
     const fetchChat = async () => {
-      // Clear messages first to avoid ghosting
       if (isMounted.current) setMessages([]);
-
       const { data } = await supabase.from('chat_history').select('*').eq('user_id', user.id).eq('session_id', currentSessionId).order('created_at', { ascending: true });
-      
       if (data && isMounted.current) {
-        // Robust Deduplication: Filter out messages that look identical (content + role) within a small time window
+        // Deduplication
         const uniqueMessages = data.filter((msg, index, self) => 
-          index === self.findIndex((m) => (
-            m.id === msg.id || (
-              m.content === msg.content && 
-              m.role === msg.role && 
-              Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 2000
-            )
-          ))
+          index === self.findIndex((m) => (m.id === msg.id || (m.content === msg.content && m.role === msg.role && Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 2000)))
         );
         setMessages(uniqueMessages as ChatMessage[]);
-      } else if (isMounted.current) {
-        setMessages([]);
       }
     };
     fetchChat();
@@ -190,7 +215,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     await supabase.from('chat_history').delete().eq('session_id', sessionId);
   };
 
-  // --- INPUT HANDLERS ---
+  // --- I/O HANDLERS ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const isMedia = file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/') || file.type === 'application/pdf';
@@ -200,6 +225,30 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
       const reader = new FileReader(); reader.onload = (e) => { const content = e.target?.result as string; if(isMounted.current) setInput(prev => `${prev}${prev ? '\n\n' : ''}[FILE: ${file.name}]\n${content}\n[END FILE]`); }; reader.readAsText(file);
     }
     e.target.value = '';
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData.items;
+    let imageFound = false;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault();
+        imageFound = true;
+        const file = items[i].getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (isMounted.current) {
+              setAttachment(reader.result as string);
+              setAttachmentName(file.name || `Screenshot_${new Date().toLocaleTimeString().replace(/:/g, '-')}.png`);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+        return; // Only process the first image found
+      }
+    }
   };
 
   const toggleRecording = async () => {
@@ -227,8 +276,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
       mediaRecorder.start(); if(isMounted.current) setIsRecording(true);
     } catch (err: any) {
       console.error("Microphone Error:", err); 
-      if (err.name === 'NotAllowedError') alert("Microphone access denied. Please enable permissions.");
-      else alert("Microphone error: " + err.message);
       if(isMounted.current) setIsRecording(false);
     }
   };
@@ -238,16 +285,13 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     const userMsg = input; const currentAttachment = attachment;
     if(isMounted.current) {
         setInput(''); setAttachment(null); setAttachmentName(null);
-        // Optimistic UI
         const tempMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userMsg, created_at: new Date().toISOString(), session_id: currentSessionId, attachment: currentAttachment || undefined };
         setMessages(prev => [...prev, tempMsg]);
         setLoading(true);
     }
 
-    // AI Request
     let responseText = await sendMessageToUnit01(user.id, userMsg, currentSessionId, currentAttachment || undefined);
 
-    // --- PARSE & EXECUTE ACTIONS ---
     const jsonMatch = responseText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch && jsonMatch[1]) {
         try {
@@ -257,7 +301,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
             if (!responseText) responseText = "Action executed successfully.";
             await supabase.from('chat_history').update({ content: responseText }).eq('session_id', currentSessionId).order('created_at', { ascending: false }).limit(1);
         } catch (e) {
-            console.error("Failed to parse/execute AI command", e);
+            console.error("AI Command Error", e);
         }
     }
 
@@ -321,9 +365,17 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
              )}
              {messages.map((msg) => (
                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`flex flex-col gap-1 max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`flex flex-col gap-1 max-w-[85%] md:max-w-[70%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     {msg.attachment && renderAttachmentPreview(msg.attachment)}
-                    <div className={`p-5 rounded-2xl text-sm leading-relaxed relative backdrop-blur-md ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-br-none shadow-[0_5px_15px_rgba(147,51,234,0.3)]' : 'bg-white/5 border border-white/10 text-gray-200 font-mono rounded-bl-none'}`}>{msg.content}</div>
+                    <div className={`p-6 rounded-2xl relative backdrop-blur-md shadow-lg ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-br-none' : 'bg-[#0f0f15]/80 border border-white/10 rounded-bl-none'}`}>
+                        {msg.role === 'user' ? (
+                            <p className="whitespace-pre-wrap font-sans text-sm">{msg.content}</p>
+                        ) : (
+                            <div className="prose prose-invert max-w-none text-sm font-sans">
+                                <MarkdownRenderer content={msg.content} />
+                            </div>
+                        )}
+                    </div>
                     <span className="text-[9px] font-mono text-gray-600 opacity-50">{new Date(msg.created_at).toLocaleTimeString()}</span>
                   </div>
                </div>
@@ -332,17 +384,26 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
              <div ref={messagesEndRef} />
           </div>
 
+          {/* INPUT AREA */}
           <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-30">
              <div className="max-w-4xl mx-auto">
                 {attachment && <div className="mb-2 relative inline-flex items-center gap-2 bg-purple-900/30 px-3 py-2 rounded-lg border border-purple-500/50"><FileText size={14} className="text-purple-300" /><span className="text-xs font-mono text-purple-200 truncate max-w-[150px]">{attachmentName}</span><button onClick={() => { setAttachment(null); setAttachmentName(null); }} className="bg-red-500/80 hover:bg-red-500 text-white rounded-full p-0.5 ml-2 transition-colors"><X size={12} /></button></div>}
                 <div className="relative flex items-end gap-2 bg-[#0a0a0a] border border-white/10 rounded-2xl p-2 shadow-2xl ring-1 ring-white/5 group focus-within:ring-purple-500/50 transition-all">
                    <input type="file" ref={fileInputRef} accept="*" className="hidden" onChange={handleFileSelect} />
                    <button onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-500 hover:text-purple-400 hover:bg-white/5 rounded-xl transition-colors"><Paperclip size={20} /></button>
-                   <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} placeholder={isRecording ? "Listening..." : "Type directive or speak..."} className="flex-1 bg-transparent border-none outline-none text-white font-mono text-sm placeholder-gray-600 max-h-32 py-3 resize-none custom-scrollbar" rows={1} />
+                   <textarea 
+                     value={input} 
+                     onChange={(e) => setInput(e.target.value)} 
+                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} 
+                     onPaste={handlePaste}
+                     placeholder={isRecording ? "Listening..." : "Type directive or speak..."} 
+                     className="flex-1 bg-transparent border-none outline-none text-white font-mono text-sm placeholder-gray-600 max-h-32 py-3 resize-none custom-scrollbar" 
+                     rows={1} 
+                   />
                    <button onClick={toggleRecording} className={`p-3 rounded-xl transition-all ${isRecording ? 'text-red-500 bg-red-900/20 animate-pulse' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}><Mic size={20} /></button>
                    <button onClick={handleSend} disabled={(!input.trim() && !attachment) || loading} className="p-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-all disabled:opacity-50 disabled:bg-gray-800"><Send size={20} /></button>
                 </div>
-                <div className="text-center mt-2"><p className="text-[9px] text-gray-600 font-mono">PURPLE NEURAL LINK v2.0 // TOTAL RECALL + ACTIVE AGENT ENABLED</p></div>
+                <div className="text-center mt-2"><p className="text-[9px] text-gray-600 font-mono">PURPLE NEURAL LINK v2.1 // RICH TEXT ENABLED</p></div>
              </div>
           </div>
         </div>

@@ -9,13 +9,17 @@ export enum Tab {
   AI = 'ai'
 }
 
+export type TaskFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+
 export interface Task {
   id: string;
   title: string;
   status: 'TODO' | 'IN_PROGRESS' | 'DONE';
   category: 'WORK' | 'GYM' | 'PERSONAL' | 'SCHOOL' | 'SYSTEM';
+  frequency: TaskFrequency;
   dueDate?: string;
   user_id?: string;
+  created_at?: string;
 }
 
 export interface GymSession {
