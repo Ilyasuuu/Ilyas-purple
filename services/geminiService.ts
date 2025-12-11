@@ -220,7 +220,7 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("model", "distil-whisper-large-v3-en");
+    formData.append("model", "whisper-large-v3");
     formData.append("response_format", "json");
 
     const response = await fetch(GROQ_AUDIO_URL, {
