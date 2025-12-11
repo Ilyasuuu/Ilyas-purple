@@ -171,38 +171,41 @@ const Journal: React.FC<JournalProps> = ({ logs, onUpdateLog, onDeleteLog }) => 
 
         {/* List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-2 no-scrollbar">
-          {filteredLogs.map(log => (
-            <div 
-              key={log.id} 
-              onClick={() => setActiveLogId(log.id)}
-              className={`
-                p-3 rounded-lg cursor-pointer transition-all border flex flex-col gap-1 group relative
-                ${activeLogId === log.id 
-                  ? 'bg-purple-900/20 border-purple-500/50' 
-                  : 'bg-transparent border-transparent hover:bg-white/5 hover:border-white/10'}
-              `}
-            >
-              <div className="flex justify-between items-start">
-                 <h3 className={`font-rajdhani font-bold truncate ${activeLogId === log.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
-                   {log.title || 'Untitled Log'}
-                 </h3>
-                 {log.isEncrypted && <Lock size={12} className="text-gray-600" />}
-              </div>
-              <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500">
-                 <div className={`w-1.5 h-1.5 rounded-full bg-${MOODS[log.mood].color}-500`} />
-                 <span>{new Date(log.date).toLocaleDateString()}</span>
-                 <span className="uppercase opacity-50 ml-auto">{log.mood}</span>
-              </div>
-              
-              {/* Quick Delete (Hover) */}
-              <button 
-                onClick={(e) => { e.stopPropagation(); onDeleteLog(log.id); }}
-                className="absolute right-2 top-8 p-1.5 text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          {filteredLogs.map(log => {
+            const moodStyle = MOODS[log.mood] || MOODS.ZEN;
+            return (
+              <div 
+                key={log.id} 
+                onClick={() => setActiveLogId(log.id)}
+                className={`
+                  p-3 rounded-lg cursor-pointer transition-all border flex flex-col gap-1 group relative
+                  ${activeLogId === log.id 
+                    ? 'bg-purple-900/20 border-purple-500/50' 
+                    : 'bg-transparent border-transparent hover:bg-white/5 hover:border-white/10'}
+                `}
               >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
+                <div className="flex justify-between items-start">
+                  <h3 className={`font-rajdhani font-bold truncate ${activeLogId === log.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                    {log.title || 'Untitled Log'}
+                  </h3>
+                  {log.isEncrypted && <Lock size={12} className="text-gray-600" />}
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500">
+                  <div className={`w-1.5 h-1.5 rounded-full bg-${moodStyle.color}-500`} />
+                  <span>{new Date(log.date).toLocaleDateString()}</span>
+                  <span className="uppercase opacity-50 ml-auto">{log.mood}</span>
+                </div>
+                
+                {/* Quick Delete (Hover) */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onDeleteLog(log.id); }}
+                  className="absolute right-2 top-8 p-1.5 text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            );
+          })}
           
           {filteredLogs.length === 0 && (
              <div className="text-center py-10 text-gray-600 font-mono text-xs">
@@ -288,7 +291,7 @@ const Journal: React.FC<JournalProps> = ({ logs, onUpdateLog, onDeleteLog }) => 
               <div className="text-xs font-mono text-gray-500 mt-2 flex items-center gap-2">
                  <span>{new Date(activeLog.date).toLocaleString()}</span>
                  <span>//</span>
-                 <span className={`text-${MOODS[activeLog.mood].color}-400`}>MENTAL STATE: {activeLog.mood}</span>
+                 <span className={`text-${(MOODS[activeLog.mood] || MOODS.ZEN).color}-400`}>MENTAL STATE: {activeLog.mood}</span>
               </div>
             </div>
 

@@ -212,7 +212,7 @@ const App: React.FC = () => {
       const { data: logsData } = await supabase.from('neural_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false });
       if (logsData) {
         setNotes(logsData.map((n: any) => ({
-          id: n.id, title: n.title, content: n.content, date: n.created_at, mood: n.mood, isEncrypted: n.is_encrypted
+          id: n.id, title: n.title, content: n.content, date: n.created_at, mood: n.mood || 'ZEN', isEncrypted: n.is_encrypted
         })));
       }
 
