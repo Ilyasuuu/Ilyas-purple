@@ -1,3 +1,4 @@
+
 import { supabase } from "../lib/supabaseClient";
 
 // 1. Safe API Key Retrieval for Groq
@@ -158,8 +159,8 @@ export const sendMessageToUnit01 = async (
       messages.push({ role: "user", content: userMessage });
     }
 
-    // Determine Model: Vision model if image present, else standard high-performance model
-    const model = attachmentDataURI ? "llama-3.2-90b-vision-preview" : "llama-4-maverick-17b-128e-instruct";
+    // Determine Model: Llama 4 Scout for everything (Vision, Text, Tools)
+    const model = "meta-llama/llama-4-scout-17b-16e-instruct";
 
     // 3. Call Groq API
     const response = await fetch(GROQ_API_URL, {
