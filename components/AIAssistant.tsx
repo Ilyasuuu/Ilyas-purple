@@ -179,19 +179,16 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     loadSessions();
   }, [user]);
 
-  // --- ROBUST CHAT FETCHING ---
-  // We use a ref to track the latest fetch timestamp to prevent out-of-order updates
-  const lastFetchRef = useRef<number>(0);
+  // --- ROBUST CHAT FETCHING WITH AGGRESSIVE DEDUPLICATION ---
+  const isFetchingRef = useRef(false);
 
   useEffect(() => {
     if (!user || !currentSessionId) return;
 
     const fetchChat = async () => {
-      const fetchTime = Date.now();
-      lastFetchRef.current = fetchTime;
-
-      // 1. Don't clear messages immediately to prevent flashing/data loss
-      // setMessages([]); <--- REMOVE THIS
+      // Prevent double-fetching in React Strict Mode
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
 
       const { data, error } = await supabase
         .from('chat_history')
@@ -202,56 +199,55 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
 
       if (error) {
         console.error("Error fetching chat:", error);
+        isFetchingRef.current = false;
         return;
       }
 
-      // Check if this fetch is still relevant (i.e., user hasn't switched sessions again)
-      // and if the component is still mounted.
-      if (isMounted.current && lastFetchRef.current === fetchTime && data) {
-        
+      if (isMounted.current && data) {
         setMessages((prevMessages) => {
-          // 2. Create a Map of existing messages by ID (or content signature)
-          const messageMap = new Map();
+          // 1. Create a "Signature Map" to identify unique messages by CONTENT, not ID.
+          // Signature format: "role:content" (e.g., "user:hello world")
+          const uniqueMap = new Map();
 
-          // Helper to create a unique signature for a message to detect duplicates
-          // even if IDs are different (e.g. Local "12345" vs DB "uuid-xxx")
-          const getSignature = (msg: any) => 
-            `${msg.role}-${msg.content.trim()}-${new Date(msg.created_at).setMilliseconds(0)}`;
+          // Helper to generate a unique signature for a message
+          const getSig = (msg: any) => `${msg.role}:${msg.content?.trim()}`;
 
-          // Load fetched DB messages first (They are the source of truth)
-          data.forEach((msg) => {
-            messageMap.set(getSignature(msg), msg);
-            // Also map by ID if it's a valid UUID (assuming DB uses UUIDs)
-            if (msg.id.length > 20) messageMap.set(msg.id, msg);
+          // 2. Load DB messages first (They are the single source of truth)
+          data.forEach((dbMsg) => {
+            const sig = getSig(dbMsg);
+            uniqueMap.set(sig, dbMsg);
           });
 
-          // 3. Merge Local "Optimistic" Messages
-          // We keep local messages that haven't been saved to DB yet
+          // 3. Check Local Messages (Pending/Optimistic)
+          // Only keep a local message if its content DOES NOT exist in the DB messages yet.
           prevMessages.forEach((localMsg) => {
-            // If this local message isn't in the DB set yet (by content signature), keep it.
-            // This handles the case where you typed something, tabbed out, and the DB fetch 
-            // hasn't caught up to your new message yet.
-            const sig = getSignature(localMsg);
-            const isSavedInDb = messageMap.has(sig) || messageMap.has(localMsg.id);
+            const sig = getSig(localMsg);
             
-            if (!isSavedInDb) {
-              messageMap.set(localMsg.id, localMsg);
+            // If the DB doesn't have this content yet, keep the local version.
+            // If the DB DOES have it, the loop above (step 2) already put the "real" version in the map.
+            if (!uniqueMap.has(sig)) {
+              uniqueMap.set(sig, localMsg);
             }
           });
 
-          // Convert back to array and sort by time
-          const merged = Array.from(messageMap.values());
-          // Remove strict duplicates based on ID just in case
-          const unique = merged.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+          // 4. Convert map back to array and sort by time
+          const combinedMessages = Array.from(uniqueMap.values());
           
-          return unique.sort((a: any, b: any) => 
+          return combinedMessages.sort((a: any, b: any) => 
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
           );
         });
       }
+      
+      isFetchingRef.current = false;
     };
 
     fetchChat();
+    
+    // Optional: Set up a cleanup to reset the lock when unmounting or changing sessions
+    return () => {
+        isFetchingRef.current = false;
+    };
   }, [currentSessionId, user]); 
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
