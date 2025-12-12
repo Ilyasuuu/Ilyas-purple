@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Cpu, Database, Plus, Mic, Paperclip, Trash2, FileText, Music, Video, File, Zap, ChevronRight } from 'lucide-react';
+import { X, Send, Cpu, Database, Plus, Mic, Paperclip, Trash2, FileText, Music, Video, File, Zap, Wifi } from 'lucide-react';
 import { sendMessageToUnit01, transcribeAudio } from '../services/geminiService';
 import { supabase } from '../lib/supabaseClient';
 import { ChatMessage } from '../types';
@@ -119,6 +119,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRealtime, setIsRealtime] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Input State
@@ -179,17 +180,15 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     loadSessions();
   }, [user]);
 
-  // --- ROBUST CHAT FETCHING WITH AGGRESSIVE DEDUPLICATION ---
-  const isFetchingRef = useRef(false);
-
+  // --- REAL-TIME CHAT SYNC (The Creative Fix) ---
+  // Instead of complex deduplication maps, we trust the DB and use Realtime Subscriptions
   useEffect(() => {
     if (!user || !currentSessionId) return;
 
-    const fetchChat = async () => {
-      // Prevent double-fetching in React Strict Mode
-      if (isFetchingRef.current) return;
-      isFetchingRef.current = true;
+    let channel: any;
 
+    const initChat = async () => {
+      // 1. Initial Load (Source of Truth)
       const { data, error } = await supabase
         .from('chat_history')
         .select('*')
@@ -197,60 +196,59 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
         .eq('session_id', currentSessionId)
         .order('created_at', { ascending: true });
 
-      if (error) {
-        console.error("Error fetching chat:", error);
-        isFetchingRef.current = false;
-        return;
+      if (error) console.error("History Error:", error);
+      if (data && isMounted.current) {
+        setMessages(data);
       }
 
-      if (isMounted.current && data) {
-        setMessages((prevMessages) => {
-          // 1. Create a "Signature Map" to identify unique messages by CONTENT, not ID.
-          // Signature format: "role:content" (e.g., "user:hello world")
-          const uniqueMap = new Map();
-
-          // Helper to generate a unique signature for a message
-          const getSig = (msg: any) => `${msg.role}:${msg.content?.trim()}`;
-
-          // 2. Load DB messages first (They are the single source of truth)
-          data.forEach((dbMsg) => {
-            const sig = getSig(dbMsg);
-            uniqueMap.set(sig, dbMsg);
-          });
-
-          // 3. Check Local Messages (Pending/Optimistic)
-          // Only keep a local message if its content DOES NOT exist in the DB messages yet.
-          prevMessages.forEach((localMsg) => {
-            const sig = getSig(localMsg);
+      // 2. Subscribe to Realtime Updates for this session
+      channel = supabase.channel(`session-${currentSessionId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'chat_history', filter: `session_id=eq.${currentSessionId}` },
+          (payload) => {
+            const newMsg = payload.new as ChatMessage;
             
-            // If the DB doesn't have this content yet, keep the local version.
-            // If the DB DOES have it, the loop above (step 2) already put the "real" version in the map.
-            if (!uniqueMap.has(sig)) {
-              uniqueMap.set(sig, localMsg);
-            }
-          });
+            setMessages(prev => {
+              // Safety: Ensure no ID duplicates
+              if (prev.some(m => m.id === newMsg.id)) return prev;
 
-          // 4. Convert map back to array and sort by time
-          const combinedMessages = Array.from(uniqueMap.values());
-          
-          return combinedMessages.sort((a: any, b: any) => 
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-          );
+              // OPTIMISTIC REPLACEMENT STRATEGY
+              // Find if we have a "pending" message (numeric ID) that matches this new DB message
+              // Matching criteria: Same role, same content, and the pending message is recent.
+              const pendingIndex = prev.findIndex(m => 
+                 m.id.length < 15 // Assuming UUIDs are long, pending IDs are Date.now() (13 chars)
+                 && m.role === newMsg.role 
+                 && m.content === newMsg.content
+              );
+
+              if (pendingIndex !== -1) {
+                 // Replace the pending message with the real DB message
+                 const updated = [...prev];
+                 updated[pendingIndex] = newMsg;
+                 return updated;
+              }
+
+              // Otherwise, it's a new message (e.g. from AI or another tab)
+              return [...prev, newMsg];
+            });
+            
+            // Auto-scroll
+            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') setIsRealtime(true);
         });
-      }
-      
-      isFetchingRef.current = false;
     };
 
-    fetchChat();
-    
-    // Optional: Set up a cleanup to reset the lock when unmounting or changing sessions
+    initChat();
+
     return () => {
-        isFetchingRef.current = false;
+      if (channel) supabase.removeChannel(channel);
+      setIsRealtime(false);
     };
   }, [currentSessionId, user]); 
-
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const handleNewSession = () => {
     const newId = crypto.randomUUID();
@@ -338,15 +336,20 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   const handleSend = async () => {
     if ((!input.trim() && !attachment) || !user || loading) return;
     const userMsg = input; const currentAttachment = attachment;
+    
+    // 1. Optimistic Update (Immediate Feedback)
     if(isMounted.current) {
         setInput(''); setAttachment(null); setAttachmentName(null);
+        // ID is purely numeric timestamp for optimistic matching
         const tempMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userMsg, created_at: new Date().toISOString(), session_id: currentSessionId, attachment: currentAttachment || undefined };
         setMessages(prev => [...prev, tempMsg]);
         setLoading(true);
     }
 
+    // 2. Call Service (This saves to DB -> Triggers Realtime -> Replaces Optimistic)
     let responseText = await sendMessageToUnit01(user.id, userMsg, currentSessionId, currentAttachment || undefined);
 
+    // 3. AI Execution (Execute commands if any)
     const jsonMatch = responseText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch && jsonMatch[1]) {
         try {
@@ -354,6 +357,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
             await executeAIAction(command);
             responseText = responseText.replace(jsonMatch[0], '').trim();
             if (!responseText) responseText = "Action executed successfully.";
+            
+            // Important: We need to update the LAST AI message in the DB with the cleaned text
+            // The service already inserted the full text. We update it here for cleanliness.
+            // But doing so might trigger another realtime event. It's usually fine.
             await supabase.from('chat_history').update({ content: responseText }).eq('session_id', currentSessionId).order('created_at', { ascending: false }).limit(1);
         } catch (e) {
             console.error("AI Command Error", e);
@@ -361,9 +368,8 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     }
 
     if(isMounted.current) {
-        const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: responseText, created_at: new Date().toISOString(), session_id: currentSessionId };
-        setMessages(prev => [...prev, aiMsg]);
         setLoading(false);
+        // Update session preview locally
         setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsg.substring(0, 30) + '...' } : s));
     }
   };
@@ -405,7 +411,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
         {/* MAIN CHAT */}
         <div className="flex-1 flex flex-col relative bg-[#080808]">
           <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-center z-30 pointer-events-none">
-             <div className="bg-black/60 backdrop-blur px-4 py-2 rounded-full border border-white/10 text-[10px] font-mono text-purple-300 shadow-xl flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />CONNECTED // {currentSessionId.split('-')[0]}...</div>
+             <div className="bg-black/60 backdrop-blur px-4 py-2 rounded-full border border-white/10 text-[10px] font-mono text-purple-300 shadow-xl flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full ${isRealtime ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+                {isRealtime ? `NEURAL SYNC // ${currentSessionId.split('-')[0]}...` : 'CONNECTING...'}
+             </div>
              <button onClick={onClose} className="pointer-events-auto p-2 bg-black/50 hover:bg-red-500/20 border border-white/10 hover:border-red-500/50 rounded-full text-gray-400 hover:text-red-400 transition-colors"><X size={20} /></button>
           </div>
           <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0"><div className="w-[600px] h-[600px] bg-purple-900/20 rounded-full blur-[120px] animate-pulse-slow" /></div>
@@ -458,7 +467,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
                    <button onClick={toggleRecording} className={`p-3 rounded-xl transition-all ${isRecording ? 'text-red-500 bg-red-900/20 animate-pulse' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}><Mic size={20} /></button>
                    <button onClick={handleSend} disabled={(!input.trim() && !attachment) || loading} className="p-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-all disabled:opacity-50 disabled:bg-gray-800"><Send size={20} /></button>
                 </div>
-                <div className="text-center mt-2"><p className="text-[9px] text-gray-600 font-mono">PURPLE NEURAL LINK v2.1 // RICH TEXT ENABLED</p></div>
+                <div className="text-center mt-2 flex items-center justify-center gap-2">
+                    <Wifi size={10} className={`${isRealtime ? 'text-green-500' : 'text-gray-600'}`} />
+                    <p className="text-[9px] text-gray-600 font-mono">PURPLE NEURAL LINK v2.2 // REALTIME SYNC ACTIVE</p>
+                </div>
              </div>
           </div>
         </div>
