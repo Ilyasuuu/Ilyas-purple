@@ -179,21 +179,80 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     loadSessions();
   }, [user]);
 
+  // --- ROBUST CHAT FETCHING ---
+  // We use a ref to track the latest fetch timestamp to prevent out-of-order updates
+  const lastFetchRef = useRef<number>(0);
+
   useEffect(() => {
     if (!user || !currentSessionId) return;
+
     const fetchChat = async () => {
-      if (isMounted.current) setMessages([]);
-      const { data } = await supabase.from('chat_history').select('*').eq('user_id', user.id).eq('session_id', currentSessionId).order('created_at', { ascending: true });
-      if (data && isMounted.current) {
-        // Deduplication
-        const uniqueMessages = data.filter((msg, index, self) => 
-          index === self.findIndex((m) => (m.id === msg.id || (m.content === msg.content && m.role === msg.role && Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 2000)))
-        );
-        setMessages(uniqueMessages as ChatMessage[]);
+      const fetchTime = Date.now();
+      lastFetchRef.current = fetchTime;
+
+      // 1. Don't clear messages immediately to prevent flashing/data loss
+      // setMessages([]); <--- REMOVE THIS
+
+      const { data, error } = await supabase
+        .from('chat_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('session_id', currentSessionId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error("Error fetching chat:", error);
+        return;
+      }
+
+      // Check if this fetch is still relevant (i.e., user hasn't switched sessions again)
+      // and if the component is still mounted.
+      if (isMounted.current && lastFetchRef.current === fetchTime && data) {
+        
+        setMessages((prevMessages) => {
+          // 2. Create a Map of existing messages by ID (or content signature)
+          const messageMap = new Map();
+
+          // Helper to create a unique signature for a message to detect duplicates
+          // even if IDs are different (e.g. Local "12345" vs DB "uuid-xxx")
+          const getSignature = (msg: any) => 
+            `${msg.role}-${msg.content.trim()}-${new Date(msg.created_at).setMilliseconds(0)}`;
+
+          // Load fetched DB messages first (They are the source of truth)
+          data.forEach((msg) => {
+            messageMap.set(getSignature(msg), msg);
+            // Also map by ID if it's a valid UUID (assuming DB uses UUIDs)
+            if (msg.id.length > 20) messageMap.set(msg.id, msg);
+          });
+
+          // 3. Merge Local "Optimistic" Messages
+          // We keep local messages that haven't been saved to DB yet
+          prevMessages.forEach((localMsg) => {
+            // If this local message isn't in the DB set yet (by content signature), keep it.
+            // This handles the case where you typed something, tabbed out, and the DB fetch 
+            // hasn't caught up to your new message yet.
+            const sig = getSignature(localMsg);
+            const isSavedInDb = messageMap.has(sig) || messageMap.has(localMsg.id);
+            
+            if (!isSavedInDb) {
+              messageMap.set(localMsg.id, localMsg);
+            }
+          });
+
+          // Convert back to array and sort by time
+          const merged = Array.from(messageMap.values());
+          // Remove strict duplicates based on ID just in case
+          const unique = merged.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+          
+          return unique.sort((a: any, b: any) => 
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+        });
       }
     };
+
     fetchChat();
-  }, [currentSessionId, user]);
+  }, [currentSessionId, user]); 
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
