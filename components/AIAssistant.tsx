@@ -369,6 +369,23 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
 
     if(isMounted.current) {
         setLoading(false);
+        
+        // --- FIX FOR TAB SWITCHING DELAY (Hybrid State Update) ---
+        // We manually inject the AI response immediately so the user doesn't have to wait for the Realtime socket
+        setMessages(prev => {
+           // Double-check if the message already exists (e.g., Realtime was super fast)
+           const alreadyExists = prev.some(m => m.role === 'assistant' && m.content === responseText);
+           if (alreadyExists) return prev;
+
+           return [...prev, {
+              id: Date.now().toString(), // Temp Numeric ID (will be replaced by Realtime UUID later)
+              role: 'assistant',
+              content: responseText,
+              created_at: new Date().toISOString(),
+              session_id: currentSessionId
+           }];
+        });
+
         // Update session preview locally
         setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsg.substring(0, 30) + '...' } : s));
     }
