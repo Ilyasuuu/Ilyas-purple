@@ -259,9 +259,11 @@ const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock
                             border-l-[4px] backdrop-blur-md
                           `}
                         >
-                          <div className="flex flex-col">
+                          <div className="flex flex-col flex-1 min-w-0 pr-2">
                               <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest text-white mb-0.5">{block.type}</span>
-                              <span className="font-rajdhani font-bold text-white text-lg tracking-wide truncate max-w-[200px]">{block.title}</span>
+                              <span className="font-rajdhani font-bold text-white text-lg tracking-wide break-words leading-tight line-clamp-3">
+                                {block.title}
+                              </span>
                           </div>
                         </div>
                       </div>

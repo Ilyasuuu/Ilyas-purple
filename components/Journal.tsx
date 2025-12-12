@@ -185,10 +185,10 @@ const Journal: React.FC<JournalProps> = ({ logs, onUpdateLog, onDeleteLog }) => 
                 `}
               >
                 <div className="flex justify-between items-start">
-                  <h3 className={`font-rajdhani font-bold truncate ${activeLogId === log.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                  <h3 className={`font-rajdhani font-bold line-clamp-2 leading-tight ${activeLogId === log.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
                     {log.title || 'Untitled Log'}
                   </h3>
-                  {log.isEncrypted && <Lock size={12} className="text-gray-600" />}
+                  {log.isEncrypted && <Lock size={12} className="text-gray-600 flex-shrink-0 ml-2" />}
                 </div>
                 <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500">
                   <div className={`w-1.5 h-1.5 rounded-full bg-${moodStyle.color}-500`} />

@@ -157,18 +157,18 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, isFocu
               <div 
                 key={task.id} 
                 onClick={() => onToggleTask(task.id)}
-                className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-purple-500/40 hover:bg-white/10 transition-all group cursor-pointer"
+                className="flex items-start justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-purple-500/40 hover:bg-white/10 transition-all group cursor-pointer"
               >
-                <div className="flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full ${task.status === 'DONE' ? 'bg-green-500' : 'bg-purple-500 animate-pulse'}`} />
-                  <div>
-                    <h4 className={`text-white font-rajdhani font-semibold text-lg transition-colors ${task.status === 'DONE' ? 'line-through text-gray-500' : 'group-hover:text-purple-300'}`}>
+                <div className="flex items-start gap-4 flex-1 min-w-0">
+                  <div className={`w-3 h-3 rounded-full mt-1.5 flex-shrink-0 ${task.status === 'DONE' ? 'bg-green-500' : 'bg-purple-500 animate-pulse'}`} />
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-white font-rajdhani font-semibold text-lg transition-colors break-words leading-tight ${task.status === 'DONE' ? 'line-through text-gray-500' : 'group-hover:text-purple-300'}`}>
                       {task.title}
                     </h4>
                     <p className="text-xs text-gray-500 font-mono mt-1">{task.category} // {task.dueDate || 'No Deadline'}</p>
                   </div>
                 </div>
-                <div className={`p-2 rounded-xl transition-colors ${task.status === 'DONE' ? 'text-green-500' : 'text-gray-500'}`}>
+                <div className={`p-2 rounded-xl transition-colors flex-shrink-0 ${task.status === 'DONE' ? 'text-green-500' : 'text-gray-500'}`}>
                   <CheckCircle className="w-5 h-5" />
                 </div>
               </div>

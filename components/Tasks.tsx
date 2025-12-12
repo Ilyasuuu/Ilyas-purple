@@ -117,36 +117,36 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteT
         {list.map(task => (
             <div 
               key={task.id} 
-              className="p-3 rounded-lg flex items-center gap-3 group bg-black/40 hover:bg-white/5 transition-all relative border border-white/5 hover:border-purple-500/30"
+              className="p-3 rounded-lg flex items-start gap-3 group bg-black/40 hover:bg-white/5 transition-all relative border border-white/5 hover:border-purple-500/30"
             >
               {/* Checkbox */}
               <button 
                 onClick={() => onToggleTask(task.id)}
-                className={`min-w-[20px] h-5 rounded border flex items-center justify-center transition-all duration-300 ${task.status === 'DONE' ? 'bg-purple-600 border-purple-600 shadow-[0_0_10px_#9333ea]' : 'border-gray-600 hover:border-purple-400'}`}
+                className={`flex-shrink-0 min-w-[20px] h-5 mt-0.5 rounded border flex items-center justify-center transition-all duration-300 ${task.status === 'DONE' ? 'bg-purple-600 border-purple-600 shadow-[0_0_10px_#9333ea]' : 'border-gray-600 hover:border-purple-400'}`}
               >
                  {task.status === 'DONE' && <Check size={12} className="text-white" />}
               </button>
 
               {/* Content */}
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 min-w-0">
                 {editingId === task.id ? (
-                  <div className="flex items-center gap-2">
-                    <input 
+                  <div className="flex items-start gap-2">
+                    <textarea 
                       autoFocus
-                      type="text" 
                       value={editInput}
                       onChange={(e) => setEditInput(e.target.value)}
                       onBlur={saveEditing}
-                      onKeyDown={(e) => e.key === 'Enter' && saveEditing()}
-                      className="bg-black/50 text-white w-full px-2 py-1 rounded border border-purple-500 outline-none font-rajdhani text-sm"
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && saveEditing()}
+                      className="bg-black/50 text-white w-full px-2 py-1 rounded border border-purple-500 outline-none font-rajdhani text-sm resize-none"
+                      rows={2}
                     />
-                    <button onClick={saveEditing} className="text-green-400"><Check size={16} /></button>
+                    <button onClick={saveEditing} className="text-green-400 mt-1"><Check size={16} /></button>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1.5">
                     <p 
                       onClick={() => startEditing(task)}
-                      className={`font-rajdhani text-sm cursor-text hover:text-purple-200 transition-colors truncate ${task.status === 'DONE' ? 'text-gray-600 line-through' : 'text-white'}`}
+                      className={`font-rajdhani text-sm cursor-text hover:text-purple-200 transition-colors break-words whitespace-pre-wrap leading-relaxed ${task.status === 'DONE' ? 'text-gray-600 line-through' : 'text-white'}`}
                     >
                       {task.title}
                     </p>
@@ -160,7 +160,7 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteT
               {/* Delete (Hover) */}
               <button 
                 onClick={() => onDeleteTask(task.id)}
-                className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
               >
                 <Trash2 size={14} />
               </button>
@@ -174,8 +174,8 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteT
     <div className="flex flex-col h-full space-y-6">
       
       {/* INPUT AREA */}
-      <div className="glass-panel p-4 rounded-xl flex flex-col md:flex-row gap-4 items-center">
-         <div className="flex gap-2">
+      <div className="glass-panel p-4 rounded-xl flex flex-col md:flex-row gap-4 items-center flex-shrink-0">
+         <div className="flex gap-2 flex-shrink-0">
             <button 
               onClick={() => setSelectedFrequency('DAILY')}
               className={`px-4 py-2 rounded-lg font-bold text-xs font-orbitron transition-all border ${selectedFrequency === 'DAILY' ? 'bg-green-500/20 text-green-400 border-green-500' : 'bg-black/40 text-gray-500 border-gray-700'}`}
