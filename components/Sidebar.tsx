@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { NAV_ITEMS } from '../constants';
 import { Tab } from '../types';
@@ -22,17 +23,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen
         />
       )}
 
-      {/* Desktop Right Navigation (Hover to Expand) */}
+      {/* Desktop Left Navigation (Hover to Expand) */}
       <aside className={`
         fixed z-50 transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)]
         
         /* Mobile Styles */
-        ${isMobileOpen ? 'right-0 top-0 bottom-0 w-64' : '-right-full top-0 bottom-0 w-64'}
-        md:right-6 md:top-6 md:bottom-6 md:w-20 md:hover:w-72
+        ${isMobileOpen ? 'left-0 top-0 bottom-0 w-64' : '-left-full top-0 bottom-0 w-64'}
+        md:left-6 md:top-6 md:bottom-6 md:w-20 md:hover:w-72
         
         /* Glass Style */
-        glass-floating md:rounded-[30px] rounded-l-2xl md:rounded-r-[30px]
-        flex flex-col overflow-hidden group border-l border-white/10 md:border border-white/15
+        glass-floating md:rounded-[30px] rounded-r-2xl md:rounded-l-[30px]
+        flex flex-col overflow-hidden group border-r border-white/10 md:border border-white/15
       `}>
         {/* Header - Hidden on collapsed desktop, visible on hover */}
         <div className="p-6 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 md:absolute md:top-0 md:left-0 md:w-full bg-gradient-to-b from-purple-500/10 to-transparent">
@@ -70,7 +71,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen
               
               {/* Active Indicator Line */}
               {activeTab === item.id && (
-                <div className="absolute left-0 w-1 h-8 bg-purple-400 rounded-r-full shadow-[0_0_10px_#A855F7]" />
+                <div className="absolute right-0 w-1 h-8 bg-purple-400 rounded-l-full shadow-[0_0_10px_#A855F7]" />
               )}
             </button>
           ))}
@@ -95,7 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen
       {/* Mobile Toggle Button (Visible only on small screens) */}
       <button 
         onClick={() => setIsMobileOpen(true)}
-        className="md:hidden fixed top-4 right-4 z-50 p-2 glass-panel rounded-lg text-white"
+        className="md:hidden fixed top-4 left-4 z-50 p-2 glass-panel rounded-lg text-white"
       >
         <Menu size={24} />
       </button>

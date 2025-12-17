@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Dumbbell, Flame } from 'lucide-react';
+import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Flame } from 'lucide-react';
 import { ScheduleBlock } from '../types';
 
 interface RightPanelProps {
@@ -149,7 +149,7 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
 
   return (
     <>
-      <aside className="hidden xl:flex flex-col w-80 fixed left-6 top-6 bottom-6 glass-floating rounded-[30px] p-6 space-y-6 overflow-y-auto z-40 no-scrollbar">
+      <aside className="hidden xl:flex flex-col w-80 fixed right-6 top-6 bottom-6 glass-floating rounded-[30px] p-6 space-y-6 overflow-y-auto z-40 no-scrollbar">
         
         {/* Profile */}
         <div className="flex items-center gap-4 pb-4 border-b border-white/10">

@@ -1,13 +1,14 @@
 
 import React from 'react';
 import { QUOTES } from '../constants';
-import { Flame, CheckCircle, Clock, Activity, Zap, Trophy } from 'lucide-react';
-import { Task, UserStats, GymSession } from '../types';
+import { Flame, CheckCircle, Clock, Activity, Zap, Trophy, Calendar, MapPin, ArrowRight } from 'lucide-react';
+import { Task, UserStats, GymSession, ScheduleBlock } from '../types';
 
 interface DashboardProps {
   stats: UserStats;
   tasks: Task[];
   gymSessions: GymSession[];
+  upcomingSchedule: ScheduleBlock[];
   isFocusing: boolean;
   toggleFocus: () => void;
   onToggleTask: (id: string) => void;
@@ -31,20 +32,20 @@ const StatCard: React.FC<{
   >
     <div className={`absolute -right-4 -top-4 w-24 h-24 bg-${color}-600/10 rounded-full blur-2xl group-hover:bg-${color}-600/20 transition-all`} />
     <div className="flex justify-between items-start relative z-10">
-      <div className="flex-1">
-        <p className="text-gray-400 font-rajdhani text-sm uppercase tracking-wider">{label}</p>
-        <div className="mt-1 font-orbitron font-bold text-white text-2xl">
+      <div className="flex-1 min-w-0">
+        <p className="text-gray-400 font-rajdhani text-sm uppercase tracking-wider truncate">{label}</p>
+        <div className="mt-1 font-orbitron font-bold text-white text-2xl truncate">
           {value}
         </div>
       </div>
-      <div className={`p-2 rounded-xl bg-${color}-500/10 text-${color}-400 border border-${color}-500/20 ${isActive ? 'animate-pulse' : ''}`}>
+      <div className={`p-2 rounded-xl bg-${color}-500/10 text-${color}-400 border border-${color}-500/20 flex-shrink-0 ${isActive ? 'animate-pulse' : ''}`}>
         {icon}
       </div>
     </div>
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, isFocusing, toggleFocus, onToggleTask }) => {
+const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomingSchedule, isFocusing, toggleFocus, onToggleTask }) => {
   const quote = QUOTES[new Date().getDate() % QUOTES.length];
   
   // Calculate Task Progress: Completed / Total Active
@@ -73,8 +74,27 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, isFocu
     return 'text-red-500';
   };
 
+  // --- SCHEDULE GROUPING ---
+  const groupedSchedule = upcomingSchedule.reduce((acc, block) => {
+    const date = new Date(block.date || '');
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+
+    let key = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    
+    if (date.toDateString() === today.toDateString()) key = "TODAY";
+    else if (date.toDateString() === tomorrow.toDateString()) key = "TOMORROW";
+
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(block);
+    return acc;
+  }, {} as Record<string, ScheduleBlock[]>);
+
+  const scheduleKeys = Object.keys(groupedSchedule);
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-20 md:pb-0">
       {/* Hero Section */}
       <div className="relative glass-panel rounded-3xl p-8 overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-purple-900/20 to-transparent pointer-events-none" />
@@ -115,17 +135,17 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, isFocu
           isActive={isFocusing}
         />
         
-        <div className="glass-panel p-5 rounded-2xl relative overflow-hidden bg-white/5 border-white/10 group">
+        <div className="glass-panel p-5 rounded-2xl relative overflow-hidden bg-white/5 border-white/10 group min-w-0">
           <div className="absolute -right-4 -top-4 w-24 h-24 bg-yellow-600/10 rounded-full blur-2xl" />
           <div className="flex justify-between items-start relative z-10 mb-2">
-            <div>
-               <p className="text-gray-400 font-rajdhani text-sm uppercase tracking-wider">Rank</p>
-               <h3 className="text-2xl font-bold font-orbitron mt-1 text-white flex items-baseline gap-1">
+            <div className="min-w-0">
+               <p className="text-gray-400 font-rajdhani text-sm uppercase tracking-wider truncate">Rank</p>
+               <h3 className="text-2xl font-bold font-orbitron mt-1 text-white flex items-baseline gap-1 truncate">
                  LVL {stats.level}
                  <span className="text-xs font-mono text-gray-500 font-normal">/ {stats.xp} XP</span>
                </h3>
             </div>
-            <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+            <div className="p-2 rounded-xl bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 flex-shrink-0">
               <Trophy className="w-6 h-6" />
             </div>
           </div>
@@ -135,52 +155,122 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, isFocu
               style={{ width: `${currentLevelProgress}%` }}
             />
           </div>
-          <p className="text-[10px] text-right text-gray-500 mt-1 font-mono">
+          <p className="text-[10px] text-right text-gray-500 mt-1 font-mono truncate">
             {xpRemaining} XP to next level
           </p>
         </div>
       </div>
 
-      {/* Split Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Main Content Grid - Responsive: 1 Col -> 2 Col -> 3 Col */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
         
-        {/* Upcoming Tasks */}
-        <div className="lg:col-span-2 glass-panel rounded-3xl p-6 border-white/10 flex flex-col h-full">
-          <div className="flex justify-between items-center mb-6">
+        {/* COL 1: Upcoming Tasks */}
+        <div className="glass-panel rounded-3xl p-6 border-white/10 flex flex-col h-[500px] min-w-0">
+          <div className="flex justify-between items-center mb-6 flex-shrink-0">
             <h3 className="font-orbitron text-xl text-white flex items-center gap-2">
               <Activity className="w-5 h-5 text-purple-500" /> Protocol Override
             </h3>
-            <span className="text-xs font-mono text-purple-400 px-2 py-1 bg-purple-500/10 rounded border border-purple-500/20">LIVE FEED</span>
+            <span className="text-xs font-mono text-purple-400 px-2 py-1 bg-purple-500/10 rounded border border-purple-500/20">LIVE</span>
           </div>
-          <div className="space-y-3 flex-1">
-            {tasks.slice(0, 4).map(task => (
+          <div className="space-y-2 flex-1 overflow-y-auto no-scrollbar pr-2">
+            {tasks.map(task => (
               <div 
                 key={task.id} 
                 onClick={() => onToggleTask(task.id)}
-                className="flex items-start justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-purple-500/40 hover:bg-white/10 transition-all group cursor-pointer"
+                className="flex items-start justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/40 hover:bg-white/10 transition-all group cursor-pointer"
               >
-                <div className="flex items-start gap-4 flex-1 min-w-0">
-                  <div className={`w-3 h-3 rounded-full mt-1.5 flex-shrink-0 ${task.status === 'DONE' ? 'bg-green-500' : 'bg-purple-500 animate-pulse'}`} />
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${task.status === 'DONE' ? 'bg-green-500' : 'bg-purple-500 animate-pulse'}`} />
                   <div className="flex-1 min-w-0">
-                    <h4 className={`text-white font-rajdhani font-semibold text-lg transition-colors break-words leading-tight ${task.status === 'DONE' ? 'line-through text-gray-500' : 'group-hover:text-purple-300'}`}>
+                    <h4 className={`text-white font-rajdhani font-semibold text-base transition-colors break-words leading-tight ${task.status === 'DONE' ? 'line-through text-gray-500' : 'group-hover:text-purple-300'}`}>
                       {task.title}
                     </h4>
-                    <p className="text-xs text-gray-500 font-mono mt-1">{task.category} // {task.dueDate || 'No Deadline'}</p>
+                    <p className="text-[10px] text-gray-500 font-mono mt-0.5 uppercase">{task.category} // {task.dueDate}</p>
                   </div>
                 </div>
-                <div className={`p-2 rounded-xl transition-colors flex-shrink-0 ${task.status === 'DONE' ? 'text-green-500' : 'text-gray-500'}`}>
-                  <CheckCircle className="w-5 h-5" />
-                </div>
+                {task.status === 'DONE' && <CheckCircle className="w-4 h-4 text-green-500 mt-1 flex-shrink-0" />}
               </div>
             ))}
             {tasks.length === 0 && (
-               <p className="text-gray-500 text-sm font-mono italic p-4 text-center">No active protocols.</p>
+               <div className="h-full flex items-center justify-center opacity-30 flex-col">
+                  <Activity size={32} className="mb-2" />
+                  <p className="text-gray-500 text-sm font-mono italic">No active protocols.</p>
+               </div>
             )}
           </div>
         </div>
 
-        {/* Weekly Progress Mini (Full 7 Days) */}
-        <div className="glass-panel rounded-3xl p-6 border-white/10 flex flex-col">
+        {/* COL 2: Tactical Forecast (Upcoming Schedule) */}
+        <div className="glass-panel rounded-3xl p-6 border-white/10 flex flex-col h-[500px] relative overflow-hidden min-w-0">
+          <div className="absolute top-0 right-0 p-6 opacity-5 pointer-events-none">
+             <Calendar size={120} />
+          </div>
+          
+          <div className="flex justify-between items-center mb-6 flex-shrink-0 relative z-10">
+            <h3 className="font-orbitron text-xl text-white flex items-center gap-2">
+               <MapPin className="w-5 h-5 text-blue-500" /> Tactical Forecast
+            </h3>
+            <span className="text-xs font-mono text-blue-400 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20">30 DAYS</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 relative z-10">
+             {upcomingSchedule.length > 0 ? (
+                <>
+                  {/* Immediate Next Event Highlight */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-500/30 flex items-center gap-4 relative overflow-hidden group min-w-0">
+                     <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                     <div className="flex flex-col items-center justify-center min-w-[60px] border-r border-white/10 pr-4">
+                        <span className="text-xs font-mono text-blue-300">NEXT UP</span>
+                        <span className="text-lg font-bold font-orbitron text-white">{upcomingSchedule[0].startTime}</span>
+                     </div>
+                     <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-white font-rajdhani text-lg truncate">{upcomingSchedule[0].title}</h4>
+                        <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
+                           <span className={`w-1.5 h-1.5 rounded-full ${upcomingSchedule[0].type === 'WORK' ? 'bg-purple-500' : 'bg-cyan-500'}`} />
+                           {upcomingSchedule[0].type}
+                        </div>
+                     </div>
+                     <ArrowRight className="text-gray-500 group-hover:text-white transition-colors flex-shrink-0" />
+                  </div>
+
+                  {/* Grouped List */}
+                  {scheduleKeys.map(key => (
+                     <div key={key}>
+                        <h4 className="text-[10px] font-bold text-gray-500 font-mono mb-2 sticky top-0 bg-[#0c0c12] py-1 z-10 uppercase tracking-widest border-b border-white/5">
+                           {key}
+                        </h4>
+                        <div className="space-y-2">
+                           {groupedSchedule[key].map(block => {
+                              // Skip the very first one if it's displayed in the Highlight box AND it's "TODAY"
+                              if (key === 'TODAY' && block.id === upcomingSchedule[0].id) return null;
+
+                              return (
+                                 <div key={block.id} className="flex gap-3 items-center p-2 rounded hover:bg-white/5 transition-colors group">
+                                    <span className="font-mono text-xs text-gray-400 group-hover:text-white transition-colors w-12 flex-shrink-0">{block.startTime}</span>
+                                    <div className={`w-1 h-8 rounded-full flex-shrink-0 ${block.type === 'GYM' ? 'bg-red-500' : block.type === 'WORK' ? 'bg-purple-500' : 'bg-yellow-500'}`} />
+                                    <div className="flex-1 min-w-0">
+                                       <p className="text-sm font-rajdhani font-medium text-gray-200 truncate group-hover:text-white">{block.title}</p>
+                                    </div>
+                                 </div>
+                              );
+                           })}
+                        </div>
+                     </div>
+                  ))}
+                </>
+             ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                   <Calendar size={40} className="mb-2 text-blue-500" />
+                   <p className="text-sm font-mono text-gray-400">Horizon clear.</p>
+                   <p className="text-xs text-gray-600">No scheduled ops for 30 days.</p>
+                </div>
+             )}
+          </div>
+        </div>
+
+        {/* COL 3: Weekly Progress (Full 7 Days) */}
+        {/* On LG screens (2 cols), this might move to row 2. That's fine. */}
+        <div className="glass-panel rounded-3xl p-6 border-white/10 flex flex-col h-[500px] min-w-0 lg:col-span-2 xl:col-span-1">
           <h3 className="font-orbitron text-xl text-white mb-6 flex items-center gap-2">
              Body Mechanics
           </h3>

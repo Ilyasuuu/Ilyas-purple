@@ -58,6 +58,7 @@ const App: React.FC = () => {
   const [viewDate, setViewDate] = useState(new Date()); 
   const [viewSchedule, setViewSchedule] = useState<ScheduleBlock[]>([]); 
   const [todaysSchedule, setTodaysSchedule] = useState<ScheduleBlock[]>([]); 
+  const [upcomingSchedule, setUpcomingSchedule] = useState<ScheduleBlock[]>([]);
 
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
   const [physiqueLog, setPhysiqueLog] = useState<PhysiqueEntry[]>([]);
@@ -207,6 +208,19 @@ const App: React.FC = () => {
           }));
           const todayStr = new Date().toISOString().split('T')[0];
           setTodaysSchedule(blocks.filter(b => b.date === todayStr));
+
+          // Calculate Upcoming Schedule (Next 30 Days)
+          const now = new Date();
+          const thirtyDaysLater = new Date();
+          thirtyDaysLater.setDate(now.getDate() + 30);
+
+          const futureBlocks = blocks.filter(b => {
+              if (!b.date) return false;
+              const dt = new Date(`${b.date}T${b.startTime}`);
+              return dt >= now && dt <= thirtyDaysLater;
+          }).sort((a, b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime());
+
+          setUpcomingSchedule(futureBlocks);
       }
 
       const { data: logsData } = await supabase.from('neural_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false });
@@ -404,11 +418,19 @@ const App: React.FC = () => {
       const newBlock = { id: data.id, title: data.title, startTime: data.start_time, type: data.type, date: data.date };
       setViewSchedule(prev => [...prev, newBlock]);
       if (dateStr === new Date().toISOString().split('T')[0]) setTodaysSchedule(prev => [...prev, newBlock]);
+      
+      // Update Upcoming Schedule immediately if relevant
+      const now = new Date();
+      const blockDate = new Date(`${data.date}T${data.start_time}`);
+      if (blockDate >= now) {
+         setUpcomingSchedule(prev => [...prev, newBlock].sort((a,b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime()));
+      }
     }
   };
   const handleDeleteBlock = async (id: string) => {
     setViewSchedule(prev => prev.filter(b => b.id !== id));
     setTodaysSchedule(prev => prev.filter(b => b.id !== id));
+    setUpcomingSchedule(prev => prev.filter(b => b.id !== id));
     await supabase.from('schedule_blocks').delete().eq('id', id);
   };
   const handleUpdateLog = async (log: Note) => {
@@ -434,47 +456,145 @@ const App: React.FC = () => {
   };
   const handleResetWorkout = async (idx: number) => {
     setStats(s => { const newXp = Math.max(0, s.xp - 150); const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; updateStatsDB(newStats); return newStats; });
-    const sessionToReset = gymSessions[idx]; const startOfWeek = getStartOfCurrentWeek();
-    setWorkoutHistory(prev => { const index = prev.slice().reverse().findIndex(log => log.sessionName === sessionToReset.focus && new Date(log.date).getTime() >= startOfWeek); if (index !== -1) { const newH = [...prev]; newH.splice(prev.length - 1 - index, 1); return newH; } return prev; });
+    setGymSessions(prev => prev.map((s, i) => i === idx ? { ...s, completed: false } : s));
+    // Note: Deleting training log from DB is complex without specific ID tracking per session, omitted for safety
   };
-  const handleUpdateBiometrics = (key: any, value: any) => {
-    setBiometrics(prev => { const updated = { ...prev, [key]: value }; if (key === 'weight') updateBiometricsDB({ current_weight: value }); return updated; });
+  const handleUpdateBiometrics = (key: keyof Biometrics, value: any) => {
+    setBiometrics(prev => ({ ...prev, [key]: value }));
   };
-  const handleSyncWeight = () => {
-    setBiometrics(prev => { const newHistory = [...prev.weightHistory, prev.weight].slice(-7); updateBiometricsDB({ weight_history: newHistory }); return { ...prev, weightHistory: newHistory }; });
+  const handleSyncWeight = async () => {
+    if (!session) return;
+    const newHistory = [...biometrics.weightHistory, biometrics.weight];
+    if (newHistory.length > 7) newHistory.shift();
+    setBiometrics(prev => ({ ...prev, weightHistory: newHistory }));
+    await updateBiometricsDB({ current_weight: biometrics.weight, weight_history: newHistory });
   };
-  const handleUpdatePR = (name: string, weight: number) => setPersonalRecords(prev => prev.map(pr => pr.name === name ? { ...pr, weight, date: 'Today' } : pr));
+  const handleUpdatePR = async (name: string, weight: number) => {
+    setPersonalRecords(prev => {
+       const idx = prev.findIndex(p => p.name === name);
+       if (idx === -1) return prev;
+       const newPRs = [...prev];
+       newPRs[idx] = { ...newPRs[idx], weight, date: 'Today' };
+       return newPRs;
+    });
+    // DB update would ideally happen here, but PRs are derived from training_logs in this architecture
+  };
   const handleAddPhysiqueEntry = async (url: string, date: string) => {
     if (!session) return;
-    const { data } = await supabase.from('physique_logs').insert({ user_id: session.user.id, image_url: url, date: date, stats: { weight: biometrics.weight, bench: 0, squat: 0, deadlift: 0 } }).select().single();
-    if (data) setPhysiqueLog(prev => [{ id: data.id, imageUrl: data.image_url, date: data.date, stats: data.stats }, ...prev]);
+    // Mock stats based on current PRs
+    const stats = { weight: biometrics.weight, bench: personalRecords.find(p=>p.name==='Bench Press')?.weight||0, squat: personalRecords.find(p=>p.name==='Squat')?.weight||0, deadlift: personalRecords.find(p=>p.name==='Deadlift')?.weight||0 };
+    const { data } = await supabase.from('physique_logs').insert({ user_id: session.user.id, image_url: url, date, stats }).select().single();
+    if (data) setPhysiqueLog(prev => [{ id: data.id, imageUrl: data.image_url, stats: data.stats, date: data.date }, ...prev]);
   };
-
-  if (loadingSession) return <div className="h-screen bg-black flex items-center justify-center text-purple-500 font-mono">INITIALIZING...</div>;
+  
+  // Render Loading Screen or Main App
+  if (loadingSession) return <div className="h-screen w-full bg-black flex items-center justify-center font-orbitron text-white text-xl animate-pulse">SYSTEM BOOT...</div>;
   if (!session) return <Auth />;
 
   return (
-    <div className="flex h-screen w-full bg-[#050505] bg-grid text-gray-100 overflow-hidden relative selection:bg-purple-500/30">
-      {WALLPAPER_URL && (<div className="fixed inset-0 z-0"><img src={WALLPAPER_URL} className="w-full h-full object-cover opacity-80" /><div className="absolute inset-0 bg-black/40 pointer-events-none" /></div>)}
+    <div className="flex h-screen bg-[#050505] bg-grid text-white overflow-hidden relative selection:bg-purple-500/30">
       {isSnowing && <SnowEffect />}
-      <RightPanel isSnowing={isSnowing} setIsSnowing={setIsSnowing} schedule={todaysSchedule} hydration={stats.hydration} onUpdateHydration={handleUpdateHydration} />
-      <main className="flex-1 flex flex-col relative z-10 h-full overflow-hidden transition-all duration-300 xl:ml-96 md:mr-32">
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth no-scrollbar">
-          <div className="max-w-7xl mx-auto h-full pb-20 md:pb-0">
-            {activeTab === Tab.DASHBOARD && <Dashboard stats={stats} tasks={tasks} gymSessions={gymSessions} isFocusing={isFocusing} toggleFocus={toggleFocus} onToggleTask={handleToggleTask} />}
-            {activeTab === Tab.TASKS && <Tasks tasks={tasks} onAddTask={handleAddTask} onToggleTask={handleToggleTask} onDeleteTask={handleDeleteTask} onEditTask={handleEditTask} pomoState={pomoState} onPomoControl={handlePomoControl} />}
-            {activeTab === Tab.GYM && <Gym sessions={gymSessions} biometrics={biometrics} personalRecords={personalRecords} workoutHistory={workoutHistory} physiqueLog={physiqueLog} onWorkoutComplete={handleWorkoutComplete} onResetWorkout={handleResetWorkout} onUpdateBiometrics={handleUpdateBiometrics} onSyncWeight={handleSyncWeight} onUpdatePR={handleUpdatePR} onAddPhysiqueEntry={handleAddPhysiqueEntry} />}
-            {activeTab === Tab.JOURNAL && <Journal logs={notes} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />}
-            {activeTab === Tab.APPS && <Apps />}
-            {activeTab === Tab.CALENDAR && <Calendar schedule={viewSchedule} onAddBlock={handleAddBlock} onDeleteBlock={handleDeleteBlock} viewDate={viewDate} setViewDate={setViewDate} />}
-          </div>
+      
+      {/* Background Ambience */}
+      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-purple-900/10 blur-[150px] rounded-full pointer-events-none z-0" />
+      <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-blue-900/10 blur-[150px] rounded-full pointer-events-none z-0" />
+
+      {/* BACKGROUND WALLPAPER (OPTIONAL) */}
+      <div 
+        className="fixed inset-0 z-0 opacity-100 pointer-events-none bg-cover bg-center"
+        style={{ backgroundImage: `url(${WALLPAPER_URL})` }}
+      />
+      
+      {/* Sidebar Navigation (NOW ON LEFT) */}
+      <Sidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        isMobileOpen={isMobileOpen}
+        setIsMobileOpen={setIsMobileOpen}
+        onLogout={() => supabase.auth.signOut()} 
+      />
+
+      {/* Main Content Area */}
+      <main className={`
+        flex-1 flex flex-col h-full overflow-hidden transition-all duration-500
+        ${activeTab === Tab.DASHBOARD ? 'p-4 md:p-8 xl:pr-96' : 'p-4 md:p-8'}
+        md:pl-28 /* Left Sidebar Offset */
+      `}>
+        {/* Render Active Tab */}
+        <div className="flex-1 h-full min-h-0 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {activeTab === Tab.DASHBOARD && (
+            <Dashboard 
+              stats={stats} 
+              tasks={tasks} 
+              gymSessions={gymSessions}
+              isFocusing={isFocusing}
+              toggleFocus={toggleFocus}
+              onToggleTask={handleToggleTask}
+              upcomingSchedule={upcomingSchedule}
+            />
+          )}
+          {activeTab === Tab.TASKS && (
+            <Tasks 
+              tasks={tasks} 
+              onAddTask={handleAddTask} 
+              onToggleTask={handleToggleTask} 
+              onDeleteTask={handleDeleteTask}
+              onEditTask={handleEditTask}
+              pomoState={pomoState}
+              onPomoControl={handlePomoControl}
+            />
+          )}
+          {activeTab === Tab.GYM && (
+            <Gym 
+              sessions={gymSessions}
+              biometrics={biometrics}
+              personalRecords={personalRecords}
+              workoutHistory={workoutHistory}
+              physiqueLog={physiqueLog}
+              onWorkoutComplete={handleWorkoutComplete}
+              onResetWorkout={handleResetWorkout}
+              onUpdateBiometrics={handleUpdateBiometrics}
+              onSyncWeight={handleSyncWeight}
+              onUpdatePR={handleUpdatePR}
+              onAddPhysiqueEntry={handleAddPhysiqueEntry}
+            />
+          )}
+          {activeTab === Tab.JOURNAL && (
+            <Journal 
+               logs={notes} 
+               onUpdateLog={handleUpdateLog} 
+               onDeleteLog={handleDeleteLog} 
+            />
+          )}
+          {activeTab === Tab.APPS && <Apps />}
+          {activeTab === Tab.CALENDAR && (
+            <Calendar 
+              schedule={viewSchedule} 
+              onAddBlock={handleAddBlock}
+              onDeleteBlock={handleDeleteBlock}
+              viewDate={viewDate}
+              setViewDate={setViewDate}
+            />
+          )}
+          {activeTab === Tab.AI && (
+            <AIAssistant 
+              onClose={() => setActiveTab(Tab.DASHBOARD)} 
+              user={session.user}
+              onRefreshData={refreshData}
+            />
+          )}
         </div>
       </main>
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} onLogout={() => supabase.auth.signOut()} />
-      {activeTab === 'ai' && session?.user && (
-        <div className="fixed inset-0 z-[60]">
-           <AIAssistant user={session.user} onClose={() => setActiveTab(Tab.DASHBOARD)} onRefreshData={refreshData} />
-        </div>
+
+      {/* Right Panel (Dashboard Only) (NOW ON RIGHT) */}
+      {activeTab === Tab.DASHBOARD && (
+        <RightPanel 
+          isSnowing={isSnowing} 
+          setIsSnowing={setIsSnowing}
+          schedule={todaysSchedule}
+          hydration={stats.hydration}
+          onUpdateHydration={handleUpdateHydration}
+        />
       )}
     </div>
   );
