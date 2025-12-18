@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabaseClient';
+import { Session } from '@supabase/supabase-js';
 import { Tab, Task, UserStats, GymSession, Biometrics, Note, ScheduleBlock, PersonalRecord, WorkoutLog, WorkoutHistoryItem, PhysiqueEntry, PomoState, FocusMode, TaskFrequency } from './types';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
@@ -15,94 +16,586 @@ import SnowEffect from './components/SnowEffect';
 import Auth from './components/Auth';
 import { WALLPAPER_URL, WEEKLY_WORKOUTS, INITIAL_PRS } from './constants';
 
-const XP_PER_LEVEL = 500;
+const getStartOfCurrentWeek = () => {
+  const now = new Date();
+  const day = now.getDay(); 
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(now.setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+  return monday.getTime();
+};
+
+const POMO_MODES: Record<FocusMode, { minutes: number; xp: number }> = {
+  DEEP: { minutes: 50, xp: 150 },
+  STANDARD: { minutes: 25, xp: 60 },
+  QUICK: { minutes: 15, xp: 30 },
+};
 
 const App: React.FC = () => {
-  // Fix: Replaced missing Session type with any to satisfy compiler
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingData, setLoadingData] = useState(false);
+
   const [activeTab, setActiveTab] = useState<Tab>(Tab.DASHBOARD);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isSnowing, setIsSnowing] = useState(false);
-  const [isFocusing, setIsFocusing] = useState(false);
+  const XP_PER_LEVEL = 500;
 
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [stats, setStats] = useState<UserStats>({ xp: 0, level: 1, streak: 1, focusTime: 0, lastVisit: new Date().toDateString(), hydration: 0 });
+  const [stats, setStats] = useState<UserStats>({
+    xp: 0, level: 1, streak: 1, focusTime: 0, lastVisit: new Date().toDateString(), hydration: 0
+  });
+  
   const [gymSessions, setGymSessions] = useState<GymSession[]>(WEEKLY_WORKOUTS);
-  const [biometrics, setBiometrics] = useState<Biometrics>({ weight: 82.5, weightHistory: [82.5] });
+  
+  const [biometrics, setBiometrics] = useState<Biometrics>({ 
+    weight: 82.5, weightHistory: [82.5] 
+  });
+
   const [notes, setNotes] = useState<Note[]>([]);
   const [personalRecords, setPersonalRecords] = useState<PersonalRecord[]>(INITIAL_PRS);
+  
   const [viewDate, setViewDate] = useState(new Date()); 
   const [viewSchedule, setViewSchedule] = useState<ScheduleBlock[]>([]); 
   const [todaysSchedule, setTodaysSchedule] = useState<ScheduleBlock[]>([]); 
   const [upcomingSchedule, setUpcomingSchedule] = useState<ScheduleBlock[]>([]);
+
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
   const [physiqueLog, setPhysiqueLog] = useState<PhysiqueEntry[]>([]);
 
-  const [pomoState, setPomoState] = useState<PomoState>({ mode: 'STANDARD', timeLeft: 25 * 60, initialTime: 25 * 60, isActive: false, status: 'IDLE' });
+  const [isFocusing, setIsFocusing] = useState(false);
+
+  const [pomoState, setPomoState] = useState<PomoState>({
+    mode: 'STANDARD',
+    timeLeft: 25 * 60,
+    initialTime: 25 * 60,
+    isActive: false,
+    status: 'IDLE'
+  });
 
   useEffect(() => {
-    // Fix: Cast supabase.auth to any to bypass type errors for getSession and onAuthStateChange
-    (supabase.auth as any).getSession().then(({ data: { session } }: any) => { setSession(session); setLoadingSession(false); });
-    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange((_event: any, session: any) => { setSession(session); });
+    const initAuth = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        setSession(data.session);
+      } catch (err) {
+        console.error("Auth Error:", err);
+      } finally {
+        setLoadingSession(false);
+      }
+    };
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
     return () => subscription.unsubscribe();
   }, []);
 
   const refreshData = useCallback(async () => {
     if (!session?.user) return;
-    const userId = session.user.id;
+    setLoadingData(true);
+    try {
+      const userId = session.user.id;
 
-    const { data: statsData } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
-    if (statsData) {
-      setStats({ xp: statsData.xp, level: statsData.level, streak: statsData.streak, focusTime: statsData.focus_time, lastVisit: statsData.last_visit, hydration: statsData.hydration_current });
-      setBiometrics({ weight: statsData.current_weight || 82.5, weightHistory: statsData.weight_history || [82.5] });
-    }
+      const { data: statsData, error: statsError } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
+      
+      if (statsError && statsError.code === 'PGRST116') {
+        const defaultStats = {
+            user_id: userId,
+            xp: 0, level: 1, streak: 1, focus_time: 0, last_visit: new Date().toDateString(),
+            current_weight: 82.5, weight_history: [82.5], hydration_current: 0, hydration_date: new Date().toDateString()
+        };
+        await supabase.from('user_stats').insert(defaultStats);
+        setStats({ xp: 0, level: 1, streak: 1, focusTime: 0, lastVisit: defaultStats.last_visit, hydration: 0 });
+      } else if (statsData) {
+        const today = new Date().toDateString();
+        let newStreak = statsData.streak;
+        if (statsData.last_visit !== today) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (statsData.last_visit === yesterday.toDateString()) newStreak += 1;
+            else newStreak = 1;
+            await supabase.from('user_stats').update({ streak: newStreak, last_visit: today }).eq('user_id', userId);
+        }
+        let currentHydration = statsData.hydration_current || 0;
+        if (statsData.hydration_date !== today) {
+            currentHydration = 0;
+            await supabase.from('user_stats').update({ hydration_current: 0, hydration_date: today }).eq('user_id', userId);
+        }
 
-    const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', userId);
-    if (tasksData) setTasks(tasksData.map(t => ({ id: t.id, title: t.title, status: t.status, category: t.category, frequency: 'DAILY' })));
+        setStats({
+          xp: statsData.xp,
+          level: statsData.level,
+          streak: newStreak,
+          focusTime: statsData.focus_time,
+          lastVisit: today,
+          hydration: currentHydration
+        });
+        setBiometrics({
+          weight: statsData.current_weight || 82.5,
+          weightHistory: statsData.weight_history || [82.5]
+        });
+      }
 
-    const { data: scheduleData } = await supabase.from('schedule_blocks').select('*').eq('user_id', userId);
-    if (scheduleData) {
-      const blocks = scheduleData.map(b => ({ id: b.id, title: b.title, startTime: b.start_time, type: b.type, date: b.date }));
-      setTodaysSchedule(blocks.filter(b => b.date === new Date().toISOString().split('T')[0]));
-      setUpcomingSchedule(blocks.sort((a,b) => a.date.localeCompare(b.date)));
+      // --- TASK CLEANUP & PARSING LOGIC ---
+      const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+      if (tasksData) {
+        const now = new Date();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const tasksToKeep: any[] = [];
+        const tasksToDeleteIds: string[] = [];
+
+        tasksData.forEach((t: any) => {
+          const taskDate = t.created_at ? new Date(t.created_at) : new Date(0);
+          
+          // Parse Frequency from Category (Stored as "FREQUENCY::CATEGORY")
+          let frequency: TaskFrequency = 'DAILY';
+          let category = t.category;
+
+          if (t.category && t.category.includes('::')) {
+             const parts = t.category.split('::');
+             frequency = parts[0] as TaskFrequency;
+             category = parts[1];
+          }
+
+          // --- AUTO-DELETION RULES ---
+          let shouldDelete = false;
+
+          if (frequency === 'DAILY') {
+             // Daily tasks reset at Midnight (if created before today)
+             if (taskDate < todayStart) shouldDelete = true;
+          } else if (frequency === 'WEEKLY') {
+             // Weekly goals disappear after 7 days
+             const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+             if (taskDate < sevenDaysAgo) shouldDelete = true;
+          } else if (frequency === 'MONTHLY') {
+             // Monthly goals disappear after 30 days
+             const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+             if (taskDate < thirtyDaysAgo) shouldDelete = true;
+          }
+
+          if (shouldDelete) {
+             tasksToDeleteIds.push(t.id);
+          } else {
+             // Add parsed task to state
+             tasksToKeep.push({
+               ...t,
+               category: category,
+               frequency: frequency
+             });
+          }
+        });
+
+        if (tasksToDeleteIds.length > 0) {
+          await supabase.from('tasks').delete().in('id', tasksToDeleteIds);
+        }
+
+        setTasks(tasksToKeep.map((t: any) => ({
+          id: t.id, title: t.title, status: t.status, category: t.category, dueDate: t.due_date, frequency: t.frequency
+        })));
+      }
+
+      const { data: scheduleData } = await supabase.from('schedule_blocks').select('*').eq('user_id', userId);
+      if (scheduleData) {
+          const blocks: ScheduleBlock[] = scheduleData.map((b: any) => ({
+            id: b.id, title: b.title, startTime: b.start_time, type: b.type, date: b.date
+          }));
+          const todayStr = new Date().toISOString().split('T')[0];
+          setTodaysSchedule(blocks.filter(b => b.date === todayStr));
+
+          // Calculate Upcoming Schedule (Next 30 Days)
+          const now = new Date();
+          const thirtyDaysLater = new Date();
+          thirtyDaysLater.setDate(now.getDate() + 30);
+
+          const futureBlocks = blocks.filter(b => {
+              if (!b.date) return false;
+              const dt = new Date(`${b.date}T${b.startTime}`);
+              return dt >= now && dt <= thirtyDaysLater;
+          }).sort((a, b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime());
+
+          setUpcomingSchedule(futureBlocks);
+      }
+
+      const { data: logsData } = await supabase.from('neural_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+      if (logsData) {
+        setNotes(logsData.map((n: any) => ({
+          id: n.id, title: n.title, content: n.content, date: n.created_at, mood: n.mood || 'ZEN', isEncrypted: n.is_encrypted
+        })));
+      }
+
+      const { data: physiqueData } = await supabase.from('physique_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+      if (physiqueData) {
+        setPhysiqueLog(physiqueData.map((p: any) => ({ id: p.id, imageUrl: p.image_url, stats: p.stats, date: p.date })));
+      }
+
+      const { data: trainingData } = await supabase.from('training_logs').select('*').eq('user_id', userId);
+      if (trainingData) {
+          const historyItems: WorkoutHistoryItem[] = [];
+          const calculatedPRs = [...INITIAL_PRS];
+          trainingData.forEach((log: any) => {
+            historyItems.push({ date: log.date, sessionName: log.session_name });
+            if (log.exercises) {
+                log.exercises.forEach((ex: any) => {
+                  let prName = '';
+                  if (ex.name.includes('Bench Press')) prName = 'Bench Press';
+                  if (ex.name.includes('Squat')) prName = 'Squat';
+                  if (ex.name.includes('Deadlift')) prName = 'Deadlift';
+                  if (prName) {
+                      const idx = calculatedPRs.findIndex(p => p.name === prName);
+                      if (idx >= 0 && ex.weight > calculatedPRs[idx].weight) {
+                        calculatedPRs[idx] = { name: prName, weight: ex.weight, date: new Date(log.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+                      }
+                  }
+                });
+            }
+          });
+          setWorkoutHistory(historyItems);
+          setPersonalRecords(calculatedPRs);
+      }
+
+    } catch (e) {
+      console.error("System Sync Failure:", e);
+    } finally {
+      setLoadingData(false);
     }
   }, [session]);
 
-  useEffect(() => { refreshData(); }, [refreshData]);
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
-  if (loadingSession) return <div className="h-screen w-full bg-black flex items-center justify-center font-orbitron text-white text-xl animate-pulse">BOOTING...</div>;
+  useEffect(() => {
+    if (!session) return;
+    const loadViewSchedule = async () => {
+       const dateStr = viewDate.toISOString().split('T')[0];
+       const { data } = await supabase.from('schedule_blocks').select('*').eq('user_id', session.user.id).eq('date', dateStr);
+       if (data) {
+         setViewSchedule(data.map((b: any) => ({
+           id: b.id, title: b.title, startTime: b.start_time, type: b.type, date: b.date
+         })));
+       } else {
+         setViewSchedule([]);
+       }
+    };
+    loadViewSchedule();
+  }, [viewDate, session, tasks]);
+
+  useEffect(() => {
+    const startOfWeek = getStartOfCurrentWeek();
+    setGymSessions(prevSessions => {
+      const updatedSessions = prevSessions.map(session => {
+        const hasLogThisWeek = workoutHistory.some(log => {
+          const logTime = new Date(log.date).getTime();
+          return log.sessionName === session.focus && logTime >= startOfWeek;
+        });
+        return { ...session, completed: hasLogThisWeek };
+      });
+      return JSON.stringify(updatedSessions) !== JSON.stringify(prevSessions) ? updatedSessions : prevSessions;
+    });
+  }, [workoutHistory]);
+
+  const updateStatsDB = async (newStats: Partial<UserStats>) => {
+    if (!session) return;
+    await supabase.from('user_stats').update({ xp: newStats.xp, level: newStats.level, focus_time: newStats.focusTime }).eq('user_id', session.user.id);
+  };
+  const updateBiometricsDB = async (updates: Partial<any>) => {
+    if (!session) return;
+    await supabase.from('user_stats').update(updates).eq('user_id', session.user.id);
+  };
+  const handleUpdateHydration = async (amount: number) => {
+    if (!session) return;
+    const newTotal = Math.max(0, Math.min(stats.hydration + amount, 5000));
+    setStats(prev => ({ ...prev, hydration: newTotal }));
+    await supabase.from('user_stats').update({ hydration_current: newTotal, hydration_date: new Date().toDateString() }).eq('user_id', session.user.id);
+  };
+
+  useEffect(() => {
+    let interval: any;
+    if (isFocusing) {
+      interval = setInterval(() => {
+        setStats(prev => {
+          const newTime = prev.focusTime + 1;
+          let newXp = prev.xp;
+          if (newTime > 0 && newTime % 600 === 0) newXp += 10;
+          if (newTime % 60 === 0) updateStatsDB({ focusTime: newTime, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 });
+          return { ...prev, focusTime: newTime, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isFocusing]);
+  const toggleFocus = () => setIsFocusing(!isFocusing);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (pomoState.isActive && pomoState.timeLeft > 0) {
+      interval = setInterval(() => setPomoState(prev => ({ ...prev, timeLeft: prev.timeLeft - 1, status: 'ENGAGED' })), 1000);
+    } else if (pomoState.timeLeft === 0 && pomoState.isActive) {
+      setPomoState(prev => ({ ...prev, isActive: false, status: 'COMPLETE' }));
+      handleFocusSessionComplete(pomoState.initialTime, POMO_MODES[pomoState.mode].xp);
+    }
+    return () => clearInterval(interval);
+  }, [pomoState.isActive, pomoState.timeLeft]);
+
+  const handlePomoControl = (action: any, payload?: any) => {
+    setPomoState(prev => {
+      if (action === 'START') return { ...prev, isActive: true, status: 'ENGAGED' };
+      if (action === 'PAUSE') return { ...prev, isActive: false, status: 'PAUSED' };
+      if (action === 'RESET') return { ...prev, isActive: false, timeLeft: prev.initialTime, status: 'IDLE' };
+      if (action === 'MODE') {
+        const newTime = POMO_MODES[payload as FocusMode].minutes * 60;
+        return { mode: payload, timeLeft: newTime, initialTime: newTime, isActive: false, status: 'IDLE' };
+      }
+      return prev;
+    });
+  };
+  const handleFocusSessionComplete = (seconds: number, xpReward: number) => {
+    setStats(prev => {
+      const newXp = prev.xp + xpReward;
+      const newStats = { ...prev, focusTime: prev.focusTime + seconds, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
+      updateStatsDB(newStats);
+      return newStats;
+    });
+  };
+
+  const handleAddTask = async (newTask: Task) => {
+    if (!session) return;
+    
+    // Encode frequency into category to avoid schema changes
+    // Format: "FREQUENCY::CATEGORY" (e.g., "DAILY::WORK")
+    const encodedCategory = `${newTask.frequency}::${newTask.category}`;
+
+    const { data } = await supabase.from('tasks').insert({ 
+      user_id: session.user.id, 
+      title: newTask.title, 
+      status: newTask.status, 
+      category: encodedCategory, // Save Encoded
+      due_date: newTask.dueDate 
+    }).select().single();
+
+    if (data) {
+      // Decode for local state
+      setTasks(prev => [{ ...newTask, id: data.id }, ...prev]);
+    }
+  };
+  const handleToggleTask = async (id: string) => {
+    const task = tasks.find(t => t.id === id); if (!task || !session) return;
+    const newStatus = task.status === 'DONE' ? 'TODO' : 'DONE';
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus as any } : t));
+    await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
+    setStats(s => {
+      let newXp = s.xp;
+      // Add XP on check, remove on uncheck (simple toggle logic)
+      if (newStatus === 'DONE') newXp += 50; else newXp = Math.max(0, newXp - 50);
+      const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
+      updateStatsDB(newStats);
+      return newStats;
+    });
+  };
+  const handleDeleteTask = async (id: string) => {
+    // 1. Update UI immediately
+    setTasks(prev => prev.filter(t => t.id !== id));
+    // 2. Delete from DB
+    await supabase.from('tasks').delete().eq('id', id);
+    // 3. DO NOT SUBTRACT XP (As per new requirement)
+  };
+  const handleEditTask = async (id: string, newTitle: string) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, title: newTitle } : t));
+    await supabase.from('tasks').update({ title: newTitle }).eq('id', id);
+  };
+  const handleAddBlock = async (block: ScheduleBlock) => {
+    if (!session) return;
+    const dateStr = viewDate.toISOString().split('T')[0];
+    const { data } = await supabase.from('schedule_blocks').insert({ user_id: session.user.id, title: block.title, start_time: block.startTime, type: block.type, date: dateStr }).select().single();
+    if (data) {
+      const newBlock = { id: data.id, title: data.title, startTime: data.start_time, type: data.type, date: data.date };
+      setViewSchedule(prev => [...prev, newBlock]);
+      if (dateStr === new Date().toISOString().split('T')[0]) setTodaysSchedule(prev => [...prev, newBlock]);
+      
+      // Update Upcoming Schedule immediately if relevant
+      const now = new Date();
+      const blockDate = new Date(`${data.date}T${data.start_time}`);
+      if (blockDate >= now) {
+         setUpcomingSchedule(prev => [...prev, newBlock].sort((a,b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime()));
+      }
+    }
+  };
+  const handleDeleteBlock = async (id: string) => {
+    setViewSchedule(prev => prev.filter(b => b.id !== id));
+    setTodaysSchedule(prev => prev.filter(b => b.id !== id));
+    setUpcomingSchedule(prev => prev.filter(b => b.id !== id));
+    await supabase.from('schedule_blocks').delete().eq('id', id);
+  };
+  const handleUpdateLog = async (log: Note) => {
+    if (!session) return;
+    const isNew = !isNaN(Number(log.id)); 
+    if (isNew) {
+       const { data } = await supabase.from('neural_logs').insert({ user_id: session.user.id, title: log.title, content: log.content, mood: log.mood, is_encrypted: log.isEncrypted }).select().single();
+       if (data) setNotes(prev => [ { ...log, id: data.id, date: data.created_at }, ...prev.filter(n => n.id !== log.id) ]);
+    } else {
+       await supabase.from('neural_logs').update({ title: log.title, content: log.content, mood: log.mood, is_encrypted: log.isEncrypted }).eq('id', log.id);
+       setNotes(prev => prev.map(n => n.id === log.id ? log : n));
+    }
+  };
+  const handleDeleteLog = async (id: string) => {
+    setNotes(prev => prev.filter(n => n.id !== id));
+    await supabase.from('neural_logs').delete().eq('id', id);
+  };
+  const handleWorkoutComplete = async (idx: number, log: WorkoutLog) => {
+    if (!session) return;
+    await supabase.from('training_logs').insert({ user_id: session.user.id, session_name: log.sessionName, total_volume: log.totalVolume, exercises: log.exercises, date: new Date().toISOString() });
+    setStats(s => { const newXp = s.xp + 150; const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; updateStatsDB(newStats); return newStats; });
+    setWorkoutHistory(prev => [...prev, { date: new Date().toISOString(), sessionName: log.sessionName }]);
+  };
+  const handleResetWorkout = async (idx: number) => {
+    setStats(s => { const newXp = Math.max(0, s.xp - 150); const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; updateStatsDB(newStats); return newStats; });
+    setGymSessions(prev => prev.map((s, i) => i === idx ? { ...s, completed: false } : s));
+    // Note: Deleting training log from DB is complex without specific ID tracking per session, omitted for safety
+  };
+  const handleUpdateBiometrics = (key: keyof Biometrics, value: any) => {
+    setBiometrics(prev => ({ ...prev, [key]: value }));
+  };
+  const handleSyncWeight = async () => {
+    if (!session) return;
+    const newHistory = [...biometrics.weightHistory, biometrics.weight];
+    if (newHistory.length > 7) newHistory.shift();
+    setBiometrics(prev => ({ ...prev, weightHistory: newHistory }));
+    await updateBiometricsDB({ current_weight: biometrics.weight, weight_history: newHistory });
+  };
+  const handleUpdatePR = async (name: string, weight: number) => {
+    setPersonalRecords(prev => {
+       const idx = prev.findIndex(p => p.name === name);
+       if (idx === -1) return prev;
+       const newPRs = [...prev];
+       newPRs[idx] = { ...newPRs[idx], weight, date: 'Today' };
+       return newPRs;
+    });
+    // DB update would ideally happen here, but PRs are derived from training_logs in this architecture
+  };
+  const handleAddPhysiqueEntry = async (url: string, date: string) => {
+    if (!session) return;
+    // Mock stats based on current PRs
+    const stats = { weight: biometrics.weight, bench: personalRecords.find(p=>p.name==='Bench Press')?.weight||0, squat: personalRecords.find(p=>p.name==='Squat')?.weight||0, deadlift: personalRecords.find(p=>p.name==='Deadlift')?.weight||0 };
+    const { data } = await supabase.from('physique_logs').insert({ user_id: session.user.id, image_url: url, date, stats }).select().single();
+    if (data) setPhysiqueLog(prev => [{ id: data.id, imageUrl: data.image_url, stats: data.stats, date: data.date }, ...prev]);
+  };
+  
+  // Render Loading Screen or Main App
+  if (loadingSession) return <div className="h-screen w-full bg-black flex items-center justify-center font-orbitron text-white text-xl animate-pulse">SYSTEM BOOT...</div>;
   if (!session) return <Auth />;
 
   return (
-    <div className={`flex h-screen bg-[#050505] text-white overflow-hidden relative selection:bg-purple-500/30 transition-all duration-1000 ${isFocusing ? 'shadow-[inset_0_0_100px_rgba(139,0,255,0.4)]' : ''}`}>
+    <div className="flex h-screen bg-[#050505] bg-grid text-white overflow-hidden relative selection:bg-purple-500/30">
       {isSnowing && <SnowEffect />}
       
-      {/* UNIVERSAL BACKGROUND SYSTEM */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-         <div 
-           className={`absolute inset-0 bg-cover bg-center transition-all duration-[3000ms] ${isFocusing ? 'scale-110 saturate-0 blur-[4px] opacity-20' : 'scale-100 opacity-25 saturate-[0.8]'}`}
-           style={{ backgroundImage: `url(${WALLPAPER_URL})`, mixBlendMode: 'plus-lighter' }} 
-         />
-         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(5,5,5,0.4)_60%,#050505_95%)]" />
-      </div>
+      {/* Background Ambience */}
+      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-purple-900/10 blur-[150px] rounded-full pointer-events-none z-0" />
+      <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-blue-900/10 blur-[150px] rounded-full pointer-events-none z-0" />
 
-      {/* Fix: Cast supabase.auth to any to bypass type error for signOut */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} onLogout={() => (supabase.auth as any).signOut()} />
+      {/* BACKGROUND WALLPAPER (OPTIONAL) */}
+      <div 
+        className="fixed inset-0 z-0 opacity-100 pointer-events-none bg-cover bg-center"
+        style={{ backgroundImage: `url(${WALLPAPER_URL})` }}
+      />
+      
+      {/* Sidebar Navigation (NOW ON LEFT) */}
+      <Sidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        isMobileOpen={isMobileOpen}
+        setIsMobileOpen={setIsMobileOpen}
+        onLogout={() => supabase.auth.signOut()} 
+      />
 
-      <main className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 relative z-10 md:pl-28 ${activeTab === Tab.DASHBOARD ? 'p-4 md:p-8 xl:pr-96' : 'p-4 md:p-8'}`}>
-        <div className="flex-1 h-full min-h-0 relative z-10">
-          {activeTab === Tab.DASHBOARD && <Dashboard stats={stats} tasks={tasks} gymSessions={gymSessions} isFocusing={isFocusing} toggleFocus={() => setIsFocusing(!isFocusing)} onToggleTask={refreshData} upcomingSchedule={upcomingSchedule} />}
-          {activeTab === Tab.TASKS && <Tasks tasks={tasks} onAddTask={refreshData} onToggleTask={refreshData} onDeleteTask={refreshData} onEditTask={refreshData} pomoState={pomoState} onPomoControl={() => {}} />}
-          {activeTab === Tab.GYM && <Gym sessions={gymSessions} biometrics={biometrics} personalRecords={personalRecords} workoutHistory={workoutHistory} physiqueLog={physiqueLog} onWorkoutComplete={refreshData} onResetWorkout={refreshData} onUpdateBiometrics={() => {}} onSyncWeight={() => {}} onUpdatePR={() => {}} onAddPhysiqueEntry={() => {}} />}
-          {activeTab === Tab.JOURNAL && <Journal logs={notes} onUpdateLog={refreshData} onDeleteLog={refreshData} />}
+      {/* Main Content Area */}
+      <main className={`
+        flex-1 flex flex-col h-full overflow-hidden transition-all duration-500
+        ${activeTab === Tab.DASHBOARD ? 'p-4 md:p-8 xl:pr-96' : 'p-4 md:p-8'}
+        md:pl-28 /* Left Sidebar Offset */
+      `}>
+        {/* Render Active Tab */}
+        <div className="flex-1 h-full min-h-0 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {activeTab === Tab.DASHBOARD && (
+            <Dashboard 
+              stats={stats} 
+              tasks={tasks} 
+              gymSessions={gymSessions}
+              isFocusing={isFocusing}
+              toggleFocus={toggleFocus}
+              onToggleTask={handleToggleTask}
+              upcomingSchedule={upcomingSchedule}
+            />
+          )}
+          {activeTab === Tab.TASKS && (
+            <Tasks 
+              tasks={tasks} 
+              onAddTask={handleAddTask} 
+              onToggleTask={handleToggleTask} 
+              onDeleteTask={handleDeleteTask}
+              onEditTask={handleEditTask}
+              pomoState={pomoState}
+              onPomoControl={handlePomoControl}
+            />
+          )}
+          {activeTab === Tab.GYM && (
+            <Gym 
+              sessions={gymSessions}
+              biometrics={biometrics}
+              personalRecords={personalRecords}
+              workoutHistory={workoutHistory}
+              physiqueLog={physiqueLog}
+              onWorkoutComplete={handleWorkoutComplete}
+              onResetWorkout={handleResetWorkout}
+              onUpdateBiometrics={handleUpdateBiometrics}
+              onSyncWeight={handleSyncWeight}
+              onUpdatePR={handleUpdatePR}
+              onAddPhysiqueEntry={handleAddPhysiqueEntry}
+            />
+          )}
+          {activeTab === Tab.JOURNAL && (
+            <Journal 
+               logs={notes} 
+               onUpdateLog={handleUpdateLog} 
+               onDeleteLog={handleDeleteLog} 
+            />
+          )}
           {activeTab === Tab.APPS && <Apps />}
-          {activeTab === Tab.CALENDAR && <Calendar schedule={viewSchedule} onAddBlock={refreshData} onDeleteBlock={refreshData} viewDate={viewDate} setViewDate={setViewDate} />}
-          {activeTab === Tab.AI && <AIAssistant onClose={() => setActiveTab(Tab.DASHBOARD)} user={session.user} onRefreshData={refreshData} />}
+          {activeTab === Tab.CALENDAR && (
+            <Calendar 
+              schedule={viewSchedule} 
+              onAddBlock={handleAddBlock}
+              onDeleteBlock={handleDeleteBlock}
+              viewDate={viewDate}
+              setViewDate={setViewDate}
+            />
+          )}
+          {activeTab === Tab.AI && (
+            <AIAssistant 
+              onClose={() => setActiveTab(Tab.DASHBOARD)} 
+              user={session.user}
+              onRefreshData={refreshData}
+            />
+          )}
         </div>
       </main>
 
-      {activeTab === Tab.DASHBOARD && <RightPanel isSnowing={isSnowing} setIsSnowing={setIsSnowing} schedule={todaysSchedule} hydration={stats.hydration} onUpdateHydration={refreshData} />}
+      {/* Right Panel (Dashboard Only) (NOW ON RIGHT) */}
+      {activeTab === Tab.DASHBOARD && (
+        <RightPanel 
+          isSnowing={isSnowing} 
+          setIsSnowing={setIsSnowing}
+          schedule={todaysSchedule}
+          hydration={stats.hydration}
+          onUpdateHydration={handleUpdateHydration}
+        />
+      )}
     </div>
   );
 };
