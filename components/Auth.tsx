@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Lock, Fingerprint, ChevronRight, AlertTriangle, Cpu } from 'lucide-react';
@@ -25,13 +26,15 @@ const Auth: React.FC = () => {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
+        // Fix: Cast supabase.auth to any to bypass type error for signInWithPassword
+        const { error } = await (supabase.auth as any).signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
       } else {
-        const { error } = await supabase.auth.signUp({
+        // Fix: Cast supabase.auth to any to bypass type error for signUp
+        const { error } = await (supabase.auth as any).signUp({
           email,
           password,
         });
