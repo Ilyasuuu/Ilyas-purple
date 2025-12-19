@@ -64,55 +64,20 @@ Purple: "Protocol updated. Gains recorded."
 const buildContext = async (userId: string) => {
   const today = new Date().toISOString().split('T')[0];
 
-  // A. Stats
   const { data: stats } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
-  
-  // B. Active Tasks (Protocol)
   const { data: tasks } = await supabase.from('tasks').select('*').eq('user_id', userId).neq('status', 'DONE').limit(15);
-  
-  // C. Schedule (Today & Tomorrow)
-  const { data: schedule } = await supabase.from('schedule_blocks')
-    .select('*')
-    .eq('user_id', userId)
-    .gte('date', today)
-    .order('date', { ascending: true })
-    .order('start_time', { ascending: true })
-    .limit(10);
+  const { data: schedule } = await supabase.from('schedule_blocks').select('*').eq('user_id', userId).gte('date', today).order('date', { ascending: true }).order('start_time', { ascending: true }).limit(10);
+  const { data: logs } = await supabase.from('neural_logs').select('title, content, mood, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3);
+  const { data: history } = await supabase.from('chat_history').select('role, content, created_at').eq('user_id', userId).order('created_at', { ascending: true }).limit(20);
 
-  // D. Recent Logs
-  const { data: logs } = await supabase.from('neural_logs')
-    .select('title, content, mood, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(3);
+  const historyMessages = history?.map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.content })) || [];
 
-  // E. Chat History
-  const { data: history } = await supabase.from('chat_history')
-    .select('role, content, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .limit(20);
-
-  const historyMessages = history?.map(msg => ({
-    role: msg.role === 'user' ? 'user' : 'assistant',
-    content: msg.content
-  })) || [];
-
-  // Construct System Context
   const systemContext = `
     [SYSTEM TIME]: ${new Date().toLocaleString()}
-    
-    [USER STATS]
-    - Level: ${stats?.level || 1} | XP: ${stats?.xp || 0}
-    
-    [ACTIVE PROTOCOL (TASKS)]
-    ${tasks?.map((t: any) => `- ${t.title} (${t.category}) [${t.status}]`).join('\n') || "No active tasks."}
-    
-    [TACTICAL FORECAST (SCHEDULE)]
-    ${schedule?.map((s: any) => `- ${s.date} @ ${s.start_time}: ${s.title} (${s.type})`).join('\n') || "No upcoming ops."}
-    
-    [RECENT NEURAL LOGS]
-    ${logs?.map((l: any) => `- [${l.mood}] ${l.title}: ${l.content.substring(0, 50)}...`).join('\n') || "No recent logs."}
+    [USER STATS]: Level ${stats?.level || 1} | XP ${stats?.xp || 0}
+    [ACTIVE PROTOCOL]: ${tasks?.map((t: any) => `- ${t.title} [${t.status}]`).join('\n') || "None"}
+    [SCHEDULE]: ${schedule?.map((s: any) => `- ${s.date} ${s.start_time}: ${s.title}`).join('\n') || "None"}
+    [LOGS]: ${logs?.map((l: any) => `- ${l.title}`).join('\n') || "None"}
   `;
 
   return { systemContext, historyMessages };
@@ -123,7 +88,9 @@ export const sendMessageToUnit01 = async (
   userId: string, 
   userMessage: string, 
   sessionId: string,
-  attachmentDataURI?: string
+  attachmentDataURI?: string,
+  userMessageId?: string,
+  aiMessageId?: string
 ): Promise<string> => {
   if (!apiKey) return "Purple: API Key Missing. Check config.";
 
@@ -132,6 +99,7 @@ export const sendMessageToUnit01 = async (
 
     // Save User Msg
     await supabase.from('chat_history').insert({ 
+      id: userMessageId, // Force UUID if provided
       user_id: userId, role: 'user', content: userMessage, session_id: sessionId, attachment: attachmentDataURI || null
     });
 
@@ -153,7 +121,7 @@ export const sendMessageToUnit01 = async (
       method: "POST",
       headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        model: "llama3-70b-8192",
         messages: messages,
         temperature: 0.6,
         max_tokens: 1024
@@ -166,6 +134,7 @@ export const sendMessageToUnit01 = async (
 
     // Save AI Msg
     await supabase.from('chat_history').insert({
+      id: aiMessageId, // Force UUID if provided
       user_id: userId, role: 'assistant', content: text, session_id: sessionId
     });
 

@@ -258,75 +258,40 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     loadSessions();
   }, [user]);
 
-  // --- REAL-TIME CHAT SYNC (The Creative Fix) ---
-  // Instead of complex deduplication maps, we trust the DB and use Realtime Subscriptions
+  // --- REAL-TIME CHAT SYNC (UPDATED) ---
   useEffect(() => {
     if (!user || !currentSessionId) return;
-
     let channel: any;
 
     const initChat = async () => {
-      // 1. Initial Load (Source of Truth)
-      const { data, error } = await supabase
-        .from('chat_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('session_id', currentSessionId)
-        .order('created_at', { ascending: true });
-
-      if (error) console.error("History Error:", error);
+      // 1. Fetch History
+      const { data } = await supabase.from('chat_history').select('*').eq('user_id', user.id).eq('session_id', currentSessionId).order('created_at', { ascending: true });
       if (data && isMounted.current) {
         setMessages(data);
       }
 
-      // 2. Subscribe to Realtime Updates for this session
+      // 2. Subscribe (Strict Deduplication)
       channel = supabase.channel(`session-${currentSessionId}`)
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'chat_history', filter: `session_id=eq.${currentSessionId}` },
           (payload) => {
             const newMsg = payload.new as ChatMessage;
-            
             setMessages(prev => {
-              // Safety: Ensure no ID duplicates
+              // CRITICAL FIX: If we already have this ID, ignore it. 
+              // This works because we now pre-generate IDs on the client.
               if (prev.some(m => m.id === newMsg.id)) return prev;
-
-              // OPTIMISTIC REPLACEMENT STRATEGY
-              // Find if we have a "pending" message (numeric ID) that matches this new DB message
-              // Matching criteria: Same role, same content, and the pending message is recent.
-              const pendingIndex = prev.findIndex(m => 
-                 m.id.length < 15 // Assuming UUIDs are long, pending IDs are Date.now() (13 chars)
-                 && m.role === newMsg.role 
-                 && m.content === newMsg.content
-              );
-
-              if (pendingIndex !== -1) {
-                 // Replace the pending message with the real DB message
-                 const updated = [...prev];
-                 updated[pendingIndex] = newMsg;
-                 return updated;
-              }
-
-              // Otherwise, it's a new message (e.g. from AI or another tab)
               return [...prev, newMsg];
             });
-            
-            // Auto-scroll
             setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
           }
         )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') setIsRealtime(true);
-        });
+        .subscribe((status) => { if (status === 'SUBSCRIBED') setIsRealtime(true); });
     };
 
     initChat();
-
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-      setIsRealtime(false);
-    };
-  }, [currentSessionId, user]); 
+    return () => { if (channel) supabase.removeChannel(channel); setIsRealtime(false); };
+  }, [currentSessionId, user.id]);
 
   const handleNewSession = () => {
     const newId = crypto.randomUUID();
@@ -411,61 +376,72 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     }
   };
 
+  // --- SEND HANDLER (UPDATED) ---
   const handleSend = async () => {
     if ((!input.trim() && !attachment) || !user || loading) return;
-    const userMsg = input; const currentAttachment = attachment;
+    const userMsgContent = input; 
+    const currentAttachment = attachment;
     
-    // 1. Optimistic Update (Immediate Feedback)
+    // 1. GENERATE IDs LOCALLY
+    const userMsgId = crypto.randomUUID();
+    const aiMsgId = crypto.randomUUID();
+
     if(isMounted.current) {
-        setInput(''); setAttachment(null); setAttachmentName(null);
-        // ID is purely numeric timestamp for optimistic matching
-        const tempMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userMsg, created_at: new Date().toISOString(), session_id: currentSessionId, attachment: currentAttachment || undefined };
-        setMessages(prev => [...prev, tempMsg]);
-        setLoading(true);
+        setInput(''); setAttachment(null); setAttachmentName(null); setLoading(true);
+        
+        // 2. OPTIMISTIC UPDATE (Use the generated ID)
+        const optimisticUserMsg: ChatMessage = { 
+            id: userMsgId, 
+            role: 'user', 
+            content: userMsgContent, 
+            created_at: new Date().toISOString(), 
+            session_id: currentSessionId, 
+            attachment: currentAttachment || undefined 
+        };
+        setMessages(prev => [...prev, optimisticUserMsg]);
     }
 
-    // 2. Call Service (This saves to DB -> Triggers Realtime -> Replaces Optimistic)
-    let responseText = await sendMessageToUnit01(user.id, userMsg, currentSessionId, currentAttachment || undefined);
+    // 3. CALL SERVICE (Pass the IDs)
+    let responseText = await sendMessageToUnit01(
+        user.id, 
+        userMsgContent, 
+        currentSessionId, 
+        currentAttachment || undefined,
+        userMsgId, // Pass ID
+        aiMsgId    // Pass ID
+    );
 
-    // 3. AI Execution (Execute commands if any)
+    // 4. AI ACTION EXECUTION
     const jsonMatch = responseText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch && jsonMatch[1]) {
         try {
             const command = JSON.parse(jsonMatch[1]);
             await executeAIAction(command);
             responseText = responseText.replace(jsonMatch[0], '').trim();
-            if (!responseText) responseText = "Action executed successfully.";
+            if (!responseText) responseText = "Action executed.";
             
-            // Important: We need to update the LAST AI message in the DB with the cleaned text
-            // The service already inserted the full text. We update it here for cleanliness.
-            // But doing so might trigger another realtime event. It's usually fine.
-            await supabase.from('chat_history').update({ content: responseText }).eq('session_id', currentSessionId).order('created_at', { ascending: false }).limit(1);
-        } catch (e) {
-            console.error("AI Command Error", e);
-        }
+            // Update the AI message in DB to remove the JSON blob
+            await supabase.from('chat_history').update({ content: responseText }).eq('id', aiMsgId);
+        } catch (e) { console.error("AI Command Error", e); }
     }
 
     if(isMounted.current) {
         setLoading(false);
         
-        // --- FIX FOR TAB SWITCHING DELAY (Hybrid State Update) ---
-        // We manually inject the AI response immediately so the user doesn't have to wait for the Realtime socket
+        // 5. MANUAL AI UPDATE (Use the generated ID)
+        // If the Realtime subscription hasn't caught it yet, we add it here.
         setMessages(prev => {
-           // Double-check if the message already exists (e.g., Realtime was super fast)
-           const alreadyExists = prev.some(m => m.role === 'assistant' && m.content === responseText);
-           if (alreadyExists) return prev;
-
+           if (prev.some(m => m.id === aiMsgId)) return prev; // Dedupe check
            return [...prev, {
-              id: Date.now().toString(), // Temp Numeric ID (will be replaced by Realtime UUID later)
+              id: aiMsgId,
               role: 'assistant',
               content: responseText,
               created_at: new Date().toISOString(),
               session_id: currentSessionId
            }];
         });
-
-        // Update session preview locally
-        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsg.substring(0, 30) + '...' } : s));
+        
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsgContent.substring(0, 30) + '...' } : s));
     }
   };
 
