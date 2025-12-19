@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Cpu, Database, Plus, Mic, Paperclip, Trash2, FileText, Music, Video, File, Zap, Wifi } from 'lucide-react';
+import { X, Send, Cpu, Database, Plus, Mic, Paperclip, Trash2, FileText, Music, Video, File, Zap, Wifi, ArrowDown } from 'lucide-react';
 import { sendMessageToUnit01, transcribeAudio } from '../services/geminiService';
 import { supabase } from '../lib/supabaseClient';
 import { ChatMessage } from '../types';
@@ -19,17 +19,14 @@ interface SessionGroup {
 
 // --- MARKDOWN RENDERER COMPONENT ---
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-  // 1. Split by Code Blocks (```)
   const sections = content.split(/```/g);
 
   const parseInline = (text: string) => {
-    // Bold (**text**)
     const parts = text.split(/(\*\*.*?\*\*)/g);
     return parts.map((part, index) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return <strong key={index} className="text-purple-300 font-bold">{part.slice(2, -2)}</strong>;
       }
-      // Inline Code (`text`)
       const codeParts = part.split(/(`.*?`)/g);
       return codeParts.map((subPart, subIndex) => {
         if (subPart.startsWith('`') && subPart.endsWith('`')) {
@@ -43,14 +40,12 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   const formatTextSection = (text: string) => {
     return text.split('\n').map((line, i) => {
       const trimmed = line.trim();
-      if (!trimmed) return <div key={i} className="h-2" />; // Spacer
+      if (!trimmed) return <div key={i} className="h-2" />; 
 
-      // Headings
       if (trimmed.startsWith('### ')) return <h3 key={i} className="text-lg font-bold text-purple-300 mt-4 mb-2 font-orbitron">{parseInline(trimmed.replace('### ', ''))}</h3>;
       if (trimmed.startsWith('## ')) return <h2 key={i} className="text-xl font-bold text-white mt-6 mb-3 border-b border-purple-500/30 pb-1 font-orbitron">{parseInline(trimmed.replace('## ', ''))}</h2>;
       if (trimmed.startsWith('# ')) return <h1 key={i} className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mt-6 mb-4 font-orbitron">{parseInline(trimmed.replace('# ', ''))}</h1>;
 
-      // Lists
       if (trimmed.startsWith('- ')) {
         return (
             <div key={i} className="flex items-start gap-2 mb-1 pl-2">
@@ -68,7 +63,6 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
         );
       }
 
-      // Blockquote
       if (trimmed.startsWith('> ')) {
           return (
               <div key={i} className="border-l-2 border-purple-500 pl-4 py-1 my-2 bg-purple-900/10 italic text-gray-400">
@@ -77,7 +71,6 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
           );
       }
 
-      // Standard Paragraph
       return <p key={i} className="mb-2 text-gray-200 leading-relaxed">{parseInline(line)}</p>;
     });
   };
@@ -85,9 +78,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   return (
     <div className="space-y-1">
       {sections.map((section, index) => {
-        // Even indices are text, Odd are code blocks
         if (index % 2 === 1) {
-          // Detect language (first line)
           const firstLineBreak = section.indexOf('\n');
           const lang = firstLineBreak > -1 ? section.slice(0, firstLineBreak).trim() : '';
           const code = firstLineBreak > -1 ? section.slice(firstLineBreak + 1) : section;
@@ -120,7 +111,11 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [isRealtime, setIsRealtime] = useState(false);
+  
+  // SCROLL REFS & STATE
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Input State
   const [isRecording, setIsRecording] = useState(false);
@@ -135,6 +130,25 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     return () => { isMounted.current = false; };
   }, []);
 
+  // --- SCROLL LOGIC ---
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  };
+
+  // Auto-scroll when messages change
+  useEffect(() => {
+    scrollToBottom('smooth');
+  }, [messages, loading]);
+
+  // Handle Scroll Event to toggle button
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    // Show button if we are more than 300px away from bottom
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 300;
+    setShowScrollButton(!isNearBottom);
+  };
+
   // --- EXECUTOR ENGINE ---
   const executeAIAction = async (command: any) => {
     if (!command || !command.action) return;
@@ -144,94 +158,48 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     console.log("Executing AI Command:", action, payload);
 
     try {
-      // --- TASKS (Protocol) ---
       if (action === 'CREATE_TASK') {
         await supabase.from('tasks').insert({ 
-            user_id: userId, 
-            title: payload.title, 
-            category: payload.category || 'SYSTEM', 
-            status: 'TODO', 
-            due_date: payload.due_date || 'Today' 
+            user_id: userId, title: payload.title, category: payload.category || 'SYSTEM', status: 'TODO', due_date: payload.due_date || 'Today' 
         });
       } 
       else if (action === 'DELETE_TASK') {
-        // Finds task by keyword and deletes it
-        const { data } = await supabase.from('tasks').select('id')
-            .eq('user_id', userId)
-            .ilike('title', `%${payload.title_keyword}%`)
-            .limit(1);
-        
-        if (data && data.length > 0) {
-            await supabase.from('tasks').delete().eq('id', data[0].id);
-        }
+        const { data } = await supabase.from('tasks').select('id').eq('user_id', userId).ilike('title', `%${payload.title_keyword}%`).limit(1);
+        if (data && data.length > 0) await supabase.from('tasks').delete().eq('id', data[0].id);
       }
       else if (action === 'UPDATE_TASK') {
-        // Finds task by keyword and updates title/status
-        const { data } = await supabase.from('tasks').select('id')
-            .eq('user_id', userId)
-            .ilike('title', `%${payload.old_title_keyword}%`)
-            .limit(1);
-
+        const { data } = await supabase.from('tasks').select('id').eq('user_id', userId).ilike('title', `%${payload.old_title_keyword}%`).limit(1);
         if (data && data.length > 0) {
             const updates: any = {};
             if (payload.new_title) updates.title = payload.new_title;
             if (payload.status) updates.status = payload.status;
-            
             await supabase.from('tasks').update(updates).eq('id', data[0].id);
         }
       }
-
-      // --- SCHEDULE (Calendar) ---
       else if (action === 'ADD_SCHEDULE') {
         await supabase.from('schedule_blocks').insert({ 
-            user_id: userId, 
-            title: payload.title, 
-            start_time: payload.start_time, 
-            type: payload.type || 'WORK', 
-            date: payload.date || new Date().toISOString().split('T')[0] 
+            user_id: userId, title: payload.title, start_time: payload.start_time, type: payload.type || 'WORK', date: payload.date || new Date().toISOString().split('T')[0] 
         });
       } 
       else if (action === 'DELETE_SCHEDULE') {
-        const { data } = await supabase.from('schedule_blocks').select('id')
-            .eq('user_id', userId)
-            .eq('date', payload.date)
-            .ilike('title', `%${payload.title_keyword}%`)
-            .limit(1);
-        
-        if (data && data.length > 0) {
-            await supabase.from('schedule_blocks').delete().eq('id', data[0].id);
-        }
+        const { data } = await supabase.from('schedule_blocks').select('id').eq('user_id', userId).eq('date', payload.date).ilike('title', `%${payload.title_keyword}%`).limit(1);
+        if (data && data.length > 0) await supabase.from('schedule_blocks').delete().eq('id', data[0].id);
       }
       else if (action === 'UPDATE_SCHEDULE') {
-         const { data } = await supabase.from('schedule_blocks').select('id')
-            .eq('user_id', userId)
-            .eq('date', payload.date)
-            .ilike('title', `%${payload.old_title_keyword}%`)
-            .limit(1);
-
+         const { data } = await supabase.from('schedule_blocks').select('id').eq('user_id', userId).eq('date', payload.date).ilike('title', `%${payload.old_title_keyword}%`).limit(1);
          if (data && data.length > 0) {
             const updates: any = {};
             if (payload.new_start_time) updates.start_time = payload.new_start_time;
             if (payload.new_title) updates.title = payload.new_title;
-            
             await supabase.from('schedule_blocks').update(updates).eq('id', data[0].id);
          }
       }
-
-      // --- LOGS (Journal) ---
       else if (action === 'LOG_NOTE') {
         await supabase.from('neural_logs').insert({ 
-            user_id: userId, 
-            title: payload.title, 
-            content: payload.content, 
-            mood: payload.mood || 'ZEN', 
-            is_encrypted: false 
+            user_id: userId, title: payload.title, content: payload.content, mood: payload.mood || 'ZEN', is_encrypted: false 
         });
       }
-
-      // Refresh data to show changes immediately
       onRefreshData();
-
     } catch (err) {
       console.error("AI Action Failed:", err);
     }
@@ -258,19 +226,18 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     loadSessions();
   }, [user]);
 
-  // --- REAL-TIME CHAT SYNC (UPDATED) ---
+  // --- REAL-TIME CHAT SYNC ---
   useEffect(() => {
     if (!user || !currentSessionId) return;
     let channel: any;
 
     const initChat = async () => {
-      // 1. Fetch History
       const { data } = await supabase.from('chat_history').select('*').eq('user_id', user.id).eq('session_id', currentSessionId).order('created_at', { ascending: true });
       if (data && isMounted.current) {
         setMessages(data);
+        setTimeout(() => scrollToBottom('auto'), 100); // Instant jump on load
       }
 
-      // 2. Subscribe (Strict Deduplication)
       channel = supabase.channel(`session-${currentSessionId}`)
         .on(
           'postgres_changes',
@@ -278,12 +245,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
           (payload) => {
             const newMsg = payload.new as ChatMessage;
             setMessages(prev => {
-              // CRITICAL FIX: If we already have this ID, ignore it. 
-              // This works because we now pre-generate IDs on the client.
               if (prev.some(m => m.id === newMsg.id)) return prev;
               return [...prev, newMsg];
             });
-            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            setTimeout(() => scrollToBottom('smooth'), 100);
           }
         )
         .subscribe((status) => { if (status === 'SUBSCRIBED') setIsRealtime(true); });
@@ -291,7 +256,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
 
     initChat();
     return () => { if (channel) supabase.removeChannel(channel); setIsRealtime(false); };
-  }, [currentSessionId, user.id]);
+  }, [currentSessionId, user]); 
 
   const handleNewSession = () => {
     const newId = crypto.randomUUID();
@@ -323,30 +288,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     e.target.value = '';
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData.items;
-    let imageFound = false;
-
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        e.preventDefault();
-        imageFound = true;
-        const file = items[i].getAsFile();
-        if (file) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (isMounted.current) {
-              setAttachment(reader.result as string);
-              setAttachmentName(file.name || `Screenshot_${new Date().toLocaleTimeString().replace(/:/g, '-')}.png`);
-            }
-          };
-          reader.readAsDataURL(file);
-        }
-        return; // Only process the first image found
-      }
-    }
-  };
-
   const toggleRecording = async () => {
     if (isRecording) {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') { mediaRecorderRef.current.stop(); if(isMounted.current) setIsRecording(false); } return;
@@ -376,72 +317,41 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
     }
   };
 
-  // --- SEND HANDLER (UPDATED) ---
   const handleSend = async () => {
     if ((!input.trim() && !attachment) || !user || loading) return;
-    const userMsgContent = input; 
-    const currentAttachment = attachment;
+    const userMsg = input; const currentAttachment = attachment;
     
-    // 1. GENERATE IDs LOCALLY
+    // Client-side ID Gen
     const userMsgId = crypto.randomUUID();
     const aiMsgId = crypto.randomUUID();
 
     if(isMounted.current) {
         setInput(''); setAttachment(null); setAttachmentName(null); setLoading(true);
-        
-        // 2. OPTIMISTIC UPDATE (Use the generated ID)
-        const optimisticUserMsg: ChatMessage = { 
-            id: userMsgId, 
-            role: 'user', 
-            content: userMsgContent, 
-            created_at: new Date().toISOString(), 
-            session_id: currentSessionId, 
-            attachment: currentAttachment || undefined 
-        };
-        setMessages(prev => [...prev, optimisticUserMsg]);
+        // Optimistic UI
+        const tempMsg: ChatMessage = { id: userMsgId, role: 'user', content: userMsg, created_at: new Date().toISOString(), session_id: currentSessionId, attachment: currentAttachment || undefined };
+        setMessages(prev => [...prev, tempMsg]);
     }
 
-    // 3. CALL SERVICE (Pass the IDs)
-    let responseText = await sendMessageToUnit01(
-        user.id, 
-        userMsgContent, 
-        currentSessionId, 
-        currentAttachment || undefined,
-        userMsgId, // Pass ID
-        aiMsgId    // Pass ID
-    );
+    let responseText = await sendMessageToUnit01(user.id, userMsg, currentSessionId, currentAttachment || undefined, userMsgId, aiMsgId);
 
-    // 4. AI ACTION EXECUTION
     const jsonMatch = responseText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch && jsonMatch[1]) {
         try {
             const command = JSON.parse(jsonMatch[1]);
             await executeAIAction(command);
             responseText = responseText.replace(jsonMatch[0], '').trim();
-            if (!responseText) responseText = "Action executed.";
-            
-            // Update the AI message in DB to remove the JSON blob
+            if (!responseText) responseText = "Action executed successfully.";
             await supabase.from('chat_history').update({ content: responseText }).eq('id', aiMsgId);
         } catch (e) { console.error("AI Command Error", e); }
     }
 
     if(isMounted.current) {
         setLoading(false);
-        
-        // 5. MANUAL AI UPDATE (Use the generated ID)
-        // If the Realtime subscription hasn't caught it yet, we add it here.
         setMessages(prev => {
-           if (prev.some(m => m.id === aiMsgId)) return prev; // Dedupe check
-           return [...prev, {
-              id: aiMsgId,
-              role: 'assistant',
-              content: responseText,
-              created_at: new Date().toISOString(),
-              session_id: currentSessionId
-           }];
+           if (prev.some(m => m.id === aiMsgId)) return prev;
+           return [...prev, { id: aiMsgId, role: 'assistant', content: responseText, created_at: new Date().toISOString(), session_id: currentSessionId }];
         });
-        
-        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsgContent.substring(0, 30) + '...' } : s));
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, preview: userMsg.substring(0, 30) + '...' } : s));
     }
   };
 
@@ -488,9 +398,15 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
              </div>
              <button onClick={onClose} className="pointer-events-auto p-2 bg-black/50 hover:bg-red-500/20 border border-white/10 hover:border-red-500/50 rounded-full text-gray-400 hover:text-red-400 transition-colors"><X size={20} /></button>
           </div>
+          
           <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0"><div className="w-[600px] h-[600px] bg-purple-900/20 rounded-full blur-[120px] animate-pulse-slow" /></div>
           
-          <div className="flex-1 overflow-y-auto p-6 pt-24 pb-32 space-y-8 relative z-10 custom-scrollbar scroll-smooth">
+          {/* MESSAGES AREA - Added onScroll handler and ref */}
+          <div 
+             ref={scrollContainerRef}
+             onScroll={handleScroll}
+             className="flex-1 overflow-y-auto p-6 pt-24 pb-32 space-y-8 relative z-10 custom-scrollbar scroll-smooth"
+          >
              {messages.length === 0 && (
                <div className="h-full flex flex-col items-center justify-center text-center opacity-50">
                   <div className="w-24 h-24 rounded-full border border-purple-500/30 flex items-center justify-center mb-6 relative"><div className="absolute inset-0 bg-purple-500/10 rounded-full animate-ping" /><Cpu size={40} className="text-purple-500" /></div>
@@ -519,6 +435,16 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
              <div ref={messagesEndRef} />
           </div>
 
+          {/* FLOATING SCROLL BUTTON */}
+          {showScrollButton && (
+             <button 
+               onClick={() => scrollToBottom('smooth')}
+               className="absolute bottom-28 right-6 z-40 p-3 bg-purple-600 text-white rounded-full shadow-lg hover:bg-purple-500 transition-all animate-bounce"
+             >
+               <ArrowDown size={20} />
+             </button>
+          )}
+
           {/* INPUT AREA */}
           <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-30">
              <div className="max-w-4xl mx-auto">
@@ -530,7 +456,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
                      value={input} 
                      onChange={(e) => setInput(e.target.value)} 
                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} 
-                     onPaste={handlePaste}
                      placeholder={isRecording ? "Listening..." : "Type directive or speak..."} 
                      className="flex-1 bg-transparent border-none outline-none text-white font-mono text-sm placeholder-gray-600 max-h-32 py-3 resize-none custom-scrollbar" 
                      rows={1} 
