@@ -48,7 +48,7 @@ If no action is needed, do NOT output JSON.
    - LOG:    { "action": "LOG_NOTE", "payload": { "title": "String", "content": "String", "mood": "FLOW/ZEN/CHAOS/IDEA" } }
 
 ### RULES:
-1. **Search First**: Look at the [CONTEXT] provided below. If asked "What tasks do I have?", READ the "Active Protocol" section.
+1. **Search First**: Look at the [CONTEXT] provided below.
 2. **Precision**: When deleting or updating, use unique keywords from the title you see in the context.
 3. **JSON Only**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
 
@@ -64,20 +64,62 @@ Purple: "Protocol updated. Gains recorded."
 const buildContext = async (userId: string) => {
   const today = new Date().toISOString().split('T')[0];
 
+  // A. Stats
   const { data: stats } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
+  
+  // B. Active Tasks (Protocol)
   const { data: tasks } = await supabase.from('tasks').select('*').eq('user_id', userId).neq('status', 'DONE').limit(15);
-  const { data: schedule } = await supabase.from('schedule_blocks').select('*').eq('user_id', userId).gte('date', today).order('date', { ascending: true }).order('start_time', { ascending: true }).limit(10);
-  const { data: logs } = await supabase.from('neural_logs').select('title, content, mood, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3);
-  const { data: history } = await supabase.from('chat_history').select('role, content, created_at').eq('user_id', userId).order('created_at', { ascending: true }).limit(20);
+  
+  // C. Schedule (Today & Tomorrow)
+  const { data: schedule } = await supabase.from('schedule_blocks')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('date', today)
+    .order('date', { ascending: true })
+    .order('start_time', { ascending: true })
+    .limit(10);
 
-  const historyMessages = history?.map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.content })) || [];
+  // D. FULL LOGS ACCESS (Fixed: Increased limit & removed truncation)
+  const { data: logs } = await supabase.from('neural_logs')
+    .select('id, title, content, mood, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(10);
 
+  // E. Chat History
+  const { data: history } = await supabase.from('chat_history')
+    .select('role, content, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(20);
+
+  const historyMessages = history?.map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'assistant',
+    content: msg.content
+  })) || [];
+
+  // Construct System Context
   const systemContext = `
     [SYSTEM TIME]: ${new Date().toLocaleString()}
-    [USER STATS]: Level ${stats?.level || 1} | XP ${stats?.xp || 0}
-    [ACTIVE PROTOCOL]: ${tasks?.map((t: any) => `- ${t.title} [${t.status}]`).join('\n') || "None"}
-    [SCHEDULE]: ${schedule?.map((s: any) => `- ${s.date} ${s.start_time}: ${s.title}`).join('\n') || "None"}
-    [LOGS]: ${logs?.map((l: any) => `- ${l.title}`).join('\n') || "None"}
+    
+    [USER STATS]
+    - Level: ${stats?.level || 1} | XP: ${stats?.xp || 0}
+    
+    [ACTIVE PROTOCOL (TASKS)]
+    ${tasks?.map((t: any) => `- ${t.title} (${t.category}) [${t.status}]`).join('\n') || "No active tasks."}
+    
+    [TACTICAL FORECAST (SCHEDULE)]
+    ${schedule?.map((s: any) => `- ${s.date} @ ${s.start_time}: ${s.title} (${s.type})`).join('\n') || "No upcoming ops."}
+    
+    [NEURAL LOGS (JOURNAL ARCHIVE)]
+    ${logs?.map((l: any) => `
+    --- ENTRY ---
+    TITLE: ${l.title}
+    MOOD: ${l.mood}
+    DATE: ${new Date(l.created_at).toLocaleDateString()}
+    CONTENT:
+    ${l.content}
+    -------------`).join('\n') || "No recent logs found."}
   `;
 
   return { systemContext, historyMessages };
