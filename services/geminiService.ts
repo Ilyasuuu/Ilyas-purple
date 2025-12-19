@@ -121,7 +121,7 @@ export const sendMessageToUnit01 = async (
       method: "POST",
       headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama3-70b-8192",
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
         messages: messages,
         temperature: 0.6,
         max_tokens: 1024
