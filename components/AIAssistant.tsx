@@ -139,21 +139,99 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   const executeAIAction = async (command: any) => {
     if (!command || !command.action) return;
     const { action, payload } = command;
+    const userId = user.id;
+
+    console.log("Executing AI Command:", action, payload);
 
     try {
+      // --- TASKS (Protocol) ---
       if (action === 'CREATE_TASK') {
-        await supabase.from('tasks').insert({ user_id: user.id, title: payload.title, category: payload.category || 'SYSTEM', status: payload.status || 'TODO', due_date: payload.due_date || 'Today' });
-      } else if (action === 'DELETE_TASK') {
-        await supabase.from('tasks').delete().ilike('title', `%${payload.title_keyword}%`).eq('user_id', user.id);
-      } else if (action === 'ADD_SCHEDULE') {
-        await supabase.from('schedule_blocks').insert({ user_id: user.id, title: payload.title, start_time: payload.start_time, type: payload.type || 'WORK', date: payload.date || new Date().toISOString().split('T')[0] });
-      } else if (action === 'DELETE_SCHEDULE') {
-        const { data: blocks } = await supabase.from('schedule_blocks').select('id').eq('user_id', user.id).eq('date', payload.date).ilike('title', `%${payload.title_keyword}%`).limit(1);
-        if (blocks && blocks.length > 0) await supabase.from('schedule_blocks').delete().eq('id', blocks[0].id);
-      } else if (action === 'LOG_NOTE') {
-        await supabase.from('neural_logs').insert({ user_id: user.id, title: payload.title, content: payload.content, mood: payload.mood || 'ZEN', is_encrypted: false });
+        await supabase.from('tasks').insert({ 
+            user_id: userId, 
+            title: payload.title, 
+            category: payload.category || 'SYSTEM', 
+            status: 'TODO', 
+            due_date: payload.due_date || 'Today' 
+        });
+      } 
+      else if (action === 'DELETE_TASK') {
+        // Finds task by keyword and deletes it
+        const { data } = await supabase.from('tasks').select('id')
+            .eq('user_id', userId)
+            .ilike('title', `%${payload.title_keyword}%`)
+            .limit(1);
+        
+        if (data && data.length > 0) {
+            await supabase.from('tasks').delete().eq('id', data[0].id);
+        }
       }
+      else if (action === 'UPDATE_TASK') {
+        // Finds task by keyword and updates title/status
+        const { data } = await supabase.from('tasks').select('id')
+            .eq('user_id', userId)
+            .ilike('title', `%${payload.old_title_keyword}%`)
+            .limit(1);
+
+        if (data && data.length > 0) {
+            const updates: any = {};
+            if (payload.new_title) updates.title = payload.new_title;
+            if (payload.status) updates.status = payload.status;
+            
+            await supabase.from('tasks').update(updates).eq('id', data[0].id);
+        }
+      }
+
+      // --- SCHEDULE (Calendar) ---
+      else if (action === 'ADD_SCHEDULE') {
+        await supabase.from('schedule_blocks').insert({ 
+            user_id: userId, 
+            title: payload.title, 
+            start_time: payload.start_time, 
+            type: payload.type || 'WORK', 
+            date: payload.date || new Date().toISOString().split('T')[0] 
+        });
+      } 
+      else if (action === 'DELETE_SCHEDULE') {
+        const { data } = await supabase.from('schedule_blocks').select('id')
+            .eq('user_id', userId)
+            .eq('date', payload.date)
+            .ilike('title', `%${payload.title_keyword}%`)
+            .limit(1);
+        
+        if (data && data.length > 0) {
+            await supabase.from('schedule_blocks').delete().eq('id', data[0].id);
+        }
+      }
+      else if (action === 'UPDATE_SCHEDULE') {
+         const { data } = await supabase.from('schedule_blocks').select('id')
+            .eq('user_id', userId)
+            .eq('date', payload.date)
+            .ilike('title', `%${payload.old_title_keyword}%`)
+            .limit(1);
+
+         if (data && data.length > 0) {
+            const updates: any = {};
+            if (payload.new_start_time) updates.start_time = payload.new_start_time;
+            if (payload.new_title) updates.title = payload.new_title;
+            
+            await supabase.from('schedule_blocks').update(updates).eq('id', data[0].id);
+         }
+      }
+
+      // --- LOGS (Journal) ---
+      else if (action === 'LOG_NOTE') {
+        await supabase.from('neural_logs').insert({ 
+            user_id: userId, 
+            title: payload.title, 
+            content: payload.content, 
+            mood: payload.mood || 'ZEN', 
+            is_encrypted: false 
+        });
+      }
+
+      // Refresh data to show changes immediately
       onRefreshData();
+
     } catch (err) {
       console.error("AI Action Failed:", err);
     }

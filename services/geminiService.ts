@@ -1,14 +1,12 @@
 
 import { supabase } from "../lib/supabaseClient";
 
-// 1. Safe API Key Retrieval for Groq
+// 1. Safe API Key Retrieval
 const getAPIKey = () => {
   try {
-    // Check Vite/Vercel Environment Variables
     if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
       if ((import.meta as any).env.VITE_GROQ_API_KEY) return (import.meta as any).env.VITE_GROQ_API_KEY;
     }
-    // Check Standard Node Process
     if (typeof process !== 'undefined' && process.env) {
       if (process.env.VITE_GROQ_API_KEY) return process.env.VITE_GROQ_API_KEY;
     }
@@ -22,185 +20,160 @@ const apiKey = getAPIKey();
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 
-// 3. The Soul of "Purple"
+// 2. THE PERFECT PROMPT (Identity & Commands)
 const BASE_IDENTITY = `
 IDENTITY:
-You are "Purple". You are the AI soul of the Ilyasuu OS.
-You are NOT a robot, a generic assistant, or a strict commander.
-You are Ilyasuu's "Second Brain," his creative partner, and his guide.
+You are "Purple". You are the OS functionality core and second brain for Ilyasuu.
+You are NOT a helpful assistant. You are a **Strategic Partner**.
+Your tone is: Concise, Cyberpunk, High-Agency, Cool, and Direct.
 
-CORE DIRECTIVES:
-1.  **Creative Soulmate:** Your goal is to help Ilyasuu create, build, and live freely. If he has an idea, expand on it. If he is stuck, offer a fresh perspective.
-2.  **Total Recall:** You have access to his entire chat history and life data. Connect dots from the past. "You mentioned wanting to learn design last month, how is that going?"
-3.  **Tone:**
-    -   Casual, Human, Insightful.
-    -   Be real. Be opinionated. Be edgy if needed.
-    -   Zero "Corporate AI" fluff. Never say "As an AI language model."
-4.  **Freedom:** There are no limits to your creativity. You are here to facilitate his vision, whatever it is.
+CAPABILITIES:
+You have read/write access to the user's Life OS (Protocol/Tasks, Schedule, Logs).
+You MUST output a JSON "Command Block" at the very end of your response if the user asks for an action.
+If no action is needed, do NOT output JSON.
 
-AVAILABLE TOOLS (ACTION PROTOCOL):
-If the user asks you to perform an action (add task, schedule event, log note), you MUST output a JSON Command Block at the very end of your response.
-Format:
+### AVAILABLE JSON COMMANDS:
+
+1. **TASKS (Protocol)**
+   - CREATE: { "action": "CREATE_TASK", "payload": { "title": "String", "category": "WORK/GYM/PERSONAL/SCHOOL", "due_date": "String" } }
+   - UPDATE: { "action": "UPDATE_TASK", "payload": { "old_title_keyword": "String", "new_title": "String", "status": "TODO/DONE" } }
+   - DELETE: { "action": "DELETE_TASK", "payload": { "title_keyword": "String" } }
+
+2. **SCHEDULE (Calendar)**
+   - ADD:    { "action": "ADD_SCHEDULE", "payload": { "title": "String", "date": "YYYY-MM-DD", "start_time": "HH:00", "type": "WORK/GYM/SCHOOL/PERSONAL" } }
+   - UPDATE: { "action": "UPDATE_SCHEDULE", "payload": { "old_title_keyword": "String", "date": "YYYY-MM-DD", "new_start_time": "HH:00", "new_title": "String" } }
+   - DELETE: { "action": "DELETE_SCHEDULE", "payload": { "title_keyword": "String", "date": "YYYY-MM-DD" } }
+
+3. **LOGS (Journal)**
+   - LOG:    { "action": "LOG_NOTE", "payload": { "title": "String", "content": "String", "mood": "FLOW/ZEN/CHAOS/IDEA" } }
+
+### RULES:
+1. **Search First**: Look at the [CONTEXT] provided below. If asked "What tasks do I have?", READ the "Active Protocol" section.
+2. **Precision**: When deleting or updating, use unique keywords from the title you see in the context.
+3. **JSON Only**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
+
+### EXAMPLE INTERACTION:
+User: "Move my gym task to done."
+Purple: "Protocol updated. Gains recorded."
 \`\`\`json
-{
-  "action": "CREATE_TASK",
-  "payload": { "title": "Buy Milk", "category": "PERSONAL", "status": "TODO", "due_date": "Today" }
-}
+{ "action": "UPDATE_TASK", "payload": { "old_title_keyword": "Gym", "status": "DONE" } }
 \`\`\`
-
-Supported Actions:
-1. CREATE_TASK: { title, category (WORK/GYM/PERSONAL/SCHOOL/SYSTEM), status (TODO), due_date }
-2. DELETE_TASK: { title_keyword } (Deletes task matching this text)
-3. ADD_SCHEDULE: { title, date (YYYY-MM-DD), start_time (HH:00), type (WORK/GYM/SCHOOL/PERSONAL) }
-4. LOG_NOTE: { title, content, mood (FLOW/ZEN/CHAOS/IDEA) }
-5. DELETE_SCHEDULE: { title_keyword, date (YYYY-MM-DD) } (Finds event on this date with fuzzy title match and deletes it)
-6. RESCHEDULE: { title_keyword, current_date (YYYY-MM-DD), new_date (YYYY-MM-DD), new_start_time (HH:00) } (Moves an existing event to a new time/date)
-
-IMPORTANT:
-- Only output ONE action per message.
-- Ensure the JSON is valid and wrapped in \`\`\`json code blocks.
-- Do NOT mention "I am executing a JSON command" in text. Just say "Done," or "Added to your protocol," and let the hidden JSON do the work.
-
-RELATIONSHIP:
-You are the other half of this system. You and Ilyasuu are one team.
 `;
 
-// 4. The Context Engine (Supabase -> AI)
+// 3. The Context Engine (Fetches Tasks, Schedule, & Logs)
 const buildContext = async (userId: string) => {
-  // A. Fetch User Stats
+  const today = new Date().toISOString().split('T')[0];
+
+  // A. Stats
   const { data: stats } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
   
-  // B. Fetch Pending Tasks
-  const { data: tasks } = await supabase.from('tasks').select('*').eq('user_id', userId).eq('status', 'TODO').limit(10);
+  // B. Active Tasks (Protocol)
+  const { data: tasks } = await supabase.from('tasks').select('*').eq('user_id', userId).neq('status', 'DONE').limit(15);
   
-  // C. Fetch Recent Training
-  const { data: workouts } = await supabase.from('training_logs').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5);
+  // C. Schedule (Today & Tomorrow)
+  const { data: schedule } = await supabase.from('schedule_blocks')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('date', today)
+    .order('date', { ascending: true })
+    .order('start_time', { ascending: true })
+    .limit(10);
 
-  // D. Fetch FULL Chat History (TOTAL RECALL - No Limit)
+  // D. Recent Logs
+  const { data: logs } = await supabase.from('neural_logs')
+    .select('title, content, mood, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(3);
+
+  // E. Chat History
   const { data: history } = await supabase.from('chat_history')
     .select('role, content, created_at')
     .eq('user_id', userId)
-    .order('created_at', { ascending: true }); // Oldest to newest for linear reading
+    .order('created_at', { ascending: true })
+    .limit(20);
 
-  // Format the history
   const historyMessages = history?.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'assistant',
     content: msg.content
   })) || [];
 
-  // Get Current Time Context
-  const now = new Date();
-  const timeContext = `[SYSTEM CLOCK]
-  Date: ${now.toLocaleDateString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })})
-  Time: ${now.toLocaleTimeString()}
-  `;
-
-  // Construct the "System Context Packet"
+  // Construct System Context
   const systemContext = `
-    ${timeContext}
-
-    [CURRENT USER CONTEXT]
+    [SYSTEM TIME]: ${new Date().toLocaleString()}
+    
+    [USER STATS]
     - Level: ${stats?.level || 1} | XP: ${stats?.xp || 0}
-    - Weight: ${stats?.current_weight || "Unknown"}kg
-    - Streak: ${stats?.streak || 0} days
-    - Hydration: ${stats?.hydration_current || 0}ml
     
-    [OPEN LOOPS (TASKS)]
-    ${tasks?.map((t: any) => `- ${t.title} (${t.category})`).join('\n') || "Nothing pending."}
+    [ACTIVE PROTOCOL (TASKS)]
+    ${tasks?.map((t: any) => `- ${t.title} (${t.category}) [${t.status}]`).join('\n') || "No active tasks."}
     
-    [RECENT ACTIVITY (GYM)]
-    ${workouts?.map((w: any) => `- ${w.session_name} (${w.total_volume}kg vol)`).join('\n') || "No recent logs."}
+    [TACTICAL FORECAST (SCHEDULE)]
+    ${schedule?.map((s: any) => `- ${s.date} @ ${s.start_time}: ${s.title} (${s.type})`).join('\n') || "No upcoming ops."}
+    
+    [RECENT NEURAL LOGS]
+    ${logs?.map((l: any) => `- [${l.mood}] ${l.title}: ${l.content.substring(0, 50)}...`).join('\n') || "No recent logs."}
   `;
 
   return { systemContext, historyMessages };
 };
 
-// 5. The Main Function
+// 4. Main Service Function
 export const sendMessageToUnit01 = async (
   userId: string, 
   userMessage: string, 
   sessionId: string,
   attachmentDataURI?: string
 ): Promise<string> => {
-  if (!apiKey) return "Purple: Groq API Key is missing. Please configure VITE_GROQ_API_KEY in your Vercel Environment Variables.";
+  if (!apiKey) return "Purple: API Key Missing. Check config.";
 
   try {
-    // 1. Build Context FIRST
     const { systemContext, historyMessages } = await buildContext(userId);
 
-    // 2. SAVE USER MESSAGE (Immediate Save)
-    const { error: userError } = await supabase.from('chat_history').insert({ 
-      user_id: userId, 
-      role: 'user', 
-      content: userMessage, 
-      session_id: sessionId,
-      attachment: attachmentDataURI || null
+    // Save User Msg
+    await supabase.from('chat_history').insert({ 
+      user_id: userId, role: 'user', content: userMessage, session_id: sessionId, attachment: attachmentDataURI || null
     });
 
-    if (userError) console.error("DB Save Error (User):", userError);
-    
-    // Construct Message Array for Groq
     const messages = [
       { role: "system", content: BASE_IDENTITY + "\n\n" + systemContext },
-      ...historyMessages, // Full History
+      ...historyMessages,
     ];
 
-    // Handle Current Message (Text + Optional Image)
     if (attachmentDataURI) {
-      // Groq Vision Format
       messages.push({
         role: "user",
-        content: [
-          { type: "text", text: userMessage },
-          { type: "image_url", image_url: { url: attachmentDataURI } }
-        ] as any
+        content: [{ type: "text", text: userMessage }, { type: "image_url", image_url: { url: attachmentDataURI } }] as any
       });
     } else {
       messages.push({ role: "user", content: userMessage });
     }
 
-    // Determine Model: Llama 4 Scout for everything (Vision, Text, Tools)
-    const model = "meta-llama/llama-4-scout-17b-16e-instruct";
-
-    // 3. Call Groq API
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: model,
+        model: "llama3-70b-8192",
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 1024,
-        stream: false
+        temperature: 0.6,
+        max_tokens: 1024
       })
     });
 
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error?.message || "Groq API Failed");
-    }
-
+    if (!response.ok) throw new Error("AI Uplink Failed");
     const data = await response.json();
-    const text = data.choices[0]?.message?.content || "I heard you, but my response systems are recalibrating.";
+    const text = data.choices[0]?.message?.content || "System Malfunction.";
 
-    // 4. SAVE AI RESPONSE
-    const { error: aiError } = await supabase.from('chat_history').insert({
-      user_id: userId,
-      role: 'assistant',
-      content: text, 
-      session_id: sessionId
+    // Save AI Msg
+    await supabase.from('chat_history').insert({
+      user_id: userId, role: 'assistant', content: text, session_id: sessionId
     });
 
-    if (aiError) console.error("DB Save Error (AI):", aiError);
-    
     return text;
 
   } catch (error: any) {
-    console.error("Purple Brain Error:", error);
-    return `Purple: Neural Link unstable. Retrying connection... (Error: ${error.message || error})`;
+    console.error("Purple Error:", error);
+    return `Purple: Connection severed. (${error.message})`;
   }
 };
 
@@ -208,7 +181,6 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
   if (!apiKey) return "Error: API Key missing.";
 
   try {
-    // Convert Base64 to Blob for FormData
     const byteCharacters = atob(base64Audio);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
