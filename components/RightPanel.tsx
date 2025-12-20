@@ -47,11 +47,8 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
   useEffect(() => {
     const updateGymTimer = () => {
       const now = new Date();
-      
-      // Determine Split based on Day (0-6 Sun-Sat)
-      const dayIndex = now.getDay();
-      
       // Updated to match new 7-Day Upper/Lower/Cardio Split
+      const dayIndex = now.getDay();
       const splits = [
         "ACTIVE RECOVERY / MOBILITY",   // 0 Sun
         "UPPER BODY A / STRENGTH",      // 1 Mon
@@ -61,7 +58,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
         "LOWER BODY B / POSTERIOR",     // 5 Fri
         "CARDIO / INTERVAL CHALLENGE"   // 6 Sat
       ];
-      
       setWorkoutSplit(splits[dayIndex]);
 
       let target = new Date();
@@ -186,13 +182,17 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
              ) : (
                 <div className="text-center">
                   <div className={`text-4xl font-orbitron font-bold tracking-widest mb-2 ${gymStatus === 'CRITICAL' ? 'text-white animate-pulse' : 'text-purple-300'}`}>{gymTimer}</div>
-                  <p className="text-xs font-bold text-white font-orbitron tracking-wide uppercase">{gymStatus === 'CRITICAL' ? "LET'S GO ILYASUU" : workoutSplit}</p>
+                  
+                  {/* UPDATED: Allows wrapping and smaller text so it fits */}
+                  <p className="text-xs font-bold text-white font-orbitron tracking-wide uppercase break-words leading-tight px-1">
+                    {gymStatus === 'CRITICAL' ? "LET'S GO ILYASUU" : workoutSplit}
+                  </p>
                 </div>
              )}
            </div>
         </div>
 
-        {/* --- PRAYER TIMES WIDGET --- */}
+        {/* --- PRAYER TIMES WIDGET (FIXED: Scaled to fit Sunday) --- */}
         <div className="glass-panel p-0 rounded-2xl relative overflow-hidden border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)] group">
            {/* Header */}
            <div className="absolute top-0 left-0 w-full p-3 bg-black/80 backdrop-blur-md z-10 flex justify-between items-center border-b border-emerald-500/20">
@@ -206,20 +206,22 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
               </div>
            </div>
 
-           {/* Iframe with Dark Mode Filter */}
-           <div className="w-full h-[360px] bg-black pt-8">
-              <iframe 
-                id="iframe" 
-                title="prayerWidget" 
-                className="w-full h-full" 
-                style={{ 
-                    border: 'none',
-                    // This filter creatively inverts the white widget to fit the dark UI
-                    filter: 'invert(0.92) hue-rotate(180deg) contrast(1.1) saturate(0.8)' 
-                }} 
-                scrolling="no" 
-                src="https://www.islamicfinder.org/prayer-widget/593116/shafi/1/0/18.0/17.0"
-              />
+           {/* Iframe with Dark Mode Filter AND Zoom Scaling */}
+           <div className="w-full h-[360px] bg-black pt-8 overflow-hidden relative">
+              <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center', width: '117%', height: '117%' }}>
+                <iframe 
+                  id="iframe" 
+                  title="prayerWidget" 
+                  className="w-full h-full" 
+                  style={{ 
+                      border: 'none',
+                      // Dark mode filter
+                      filter: 'invert(0.92) hue-rotate(180deg) contrast(1.1) saturate(0.8)' 
+                  }} 
+                  scrolling="no" 
+                  src="https://www.islamicfinder.org/prayer-widget/593116/shafi/1/0/18.0/17.0"
+                />
+              </div>
            </div>
            {/* Decorative Footer */}
            <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-900 via-emerald-500 to-emerald-900 opacity-50" />
