@@ -367,23 +367,11 @@ const App: React.FC = () => {
 
   const handleAddTask = async (newTask: Task) => {
     if (!session) return;
-    
-    // Encode frequency into category to avoid schema changes
-    // Format: "FREQUENCY::CATEGORY" (e.g., "DAILY::WORK")
     const encodedCategory = `${newTask.frequency}::${newTask.category}`;
-
     const { data } = await supabase.from('tasks').insert({ 
-      user_id: session.user.id, 
-      title: newTask.title, 
-      status: newTask.status, 
-      category: encodedCategory, // Save Encoded
-      due_date: newTask.dueDate 
+      user_id: session.user.id, title: newTask.title, status: newTask.status, category: encodedCategory, due_date: newTask.dueDate 
     }).select().single();
-
-    if (data) {
-      // Decode for local state
-      setTasks(prev => [{ ...newTask, id: data.id }, ...prev]);
-    }
+    if (data) setTasks(prev => [{ ...newTask, id: data.id }, ...prev]);
   };
   const handleToggleTask = async (id: string) => {
     const task = tasks.find(t => t.id === id); if (!task || !session) return;
@@ -392,7 +380,6 @@ const App: React.FC = () => {
     await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
     setStats(s => {
       let newXp = s.xp;
-      // Add XP on check, remove on uncheck (simple toggle logic)
       if (newStatus === 'DONE') newXp += 50; else newXp = Math.max(0, newXp - 50);
       const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
       updateStatsDB(newStats);
@@ -400,11 +387,8 @@ const App: React.FC = () => {
     });
   };
   const handleDeleteTask = async (id: string) => {
-    // 1. Update UI immediately
     setTasks(prev => prev.filter(t => t.id !== id));
-    // 2. Delete from DB
     await supabase.from('tasks').delete().eq('id', id);
-    // 3. DO NOT SUBTRACT XP (As per new requirement)
   };
   const handleEditTask = async (id: string, newTitle: string) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, title: newTitle } : t));
@@ -418,13 +402,9 @@ const App: React.FC = () => {
       const newBlock = { id: data.id, title: data.title, startTime: data.start_time, type: data.type, date: data.date };
       setViewSchedule(prev => [...prev, newBlock]);
       if (dateStr === new Date().toISOString().split('T')[0]) setTodaysSchedule(prev => [...prev, newBlock]);
-      
-      // Update Upcoming Schedule immediately if relevant
       const now = new Date();
       const blockDate = new Date(`${data.date}T${data.start_time}`);
-      if (blockDate >= now) {
-         setUpcomingSchedule(prev => [...prev, newBlock].sort((a,b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime()));
-      }
+      if (blockDate >= now) setUpcomingSchedule(prev => [...prev, newBlock].sort((a,b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime()));
     }
   };
   const handleDeleteBlock = async (id: string) => {
@@ -457,7 +437,6 @@ const App: React.FC = () => {
   const handleResetWorkout = async (idx: number) => {
     setStats(s => { const newXp = Math.max(0, s.xp - 150); const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; updateStatsDB(newStats); return newStats; });
     setGymSessions(prev => prev.map((s, i) => i === idx ? { ...s, completed: false } : s));
-    // Note: Deleting training log from DB is complex without specific ID tracking per session, omitted for safety
   };
   const handleUpdateBiometrics = (key: keyof Biometrics, value: any) => {
     setBiometrics(prev => ({ ...prev, [key]: value }));
@@ -477,17 +456,14 @@ const App: React.FC = () => {
        newPRs[idx] = { ...newPRs[idx], weight, date: 'Today' };
        return newPRs;
     });
-    // DB update would ideally happen here, but PRs are derived from training_logs in this architecture
   };
   const handleAddPhysiqueEntry = async (url: string, date: string) => {
     if (!session) return;
-    // Mock stats based on current PRs
     const stats = { weight: biometrics.weight, bench: personalRecords.find(p=>p.name==='Bench Press')?.weight||0, squat: personalRecords.find(p=>p.name==='Squat')?.weight||0, deadlift: personalRecords.find(p=>p.name==='Deadlift')?.weight||0 };
     const { data } = await supabase.from('physique_logs').insert({ user_id: session.user.id, image_url: url, date, stats }).select().single();
     if (data) setPhysiqueLog(prev => [{ id: data.id, imageUrl: data.image_url, stats: data.stats, date: data.date }, ...prev]);
   };
   
-  // Render Loading Screen or Main App
   if (loadingSession) return <div className="h-screen w-full bg-black flex items-center justify-center font-orbitron text-white text-xl animate-pulse">SYSTEM BOOT...</div>;
   if (!session) return <Auth />;
 
@@ -499,13 +475,13 @@ const App: React.FC = () => {
       <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-purple-900/10 blur-[150px] rounded-full pointer-events-none z-0" />
       <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-blue-900/10 blur-[150px] rounded-full pointer-events-none z-0" />
 
-      {/* BACKGROUND WALLPAPER (OPTIONAL) */}
+      {/* BACKGROUND WALLPAPER */}
       <div 
         className="fixed inset-0 z-0 opacity-100 pointer-events-none bg-cover bg-center"
         style={{ backgroundImage: `url(${WALLPAPER_URL})` }}
       />
       
-      {/* Sidebar Navigation (NOW ON LEFT) */}
+      {/* Sidebar Navigation */}
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
@@ -518,10 +494,10 @@ const App: React.FC = () => {
       <main className={`
         flex-1 flex flex-col h-full overflow-hidden transition-all duration-500
         ${activeTab === Tab.DASHBOARD ? 'p-4 md:p-8 xl:pr-96' : 'p-4 md:p-8'}
-        md:pl-28 /* Left Sidebar Offset */
+        md:pl-28
       `}>
-        {/* Render Active Tab */}
-        <div className="flex-1 h-full min-h-0 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        {/* SCROLLABLE CONTAINER: ADDED overflow-y-auto custom-scrollbar */}
+        <div className="flex-1 h-full min-h-0 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto custom-scrollbar">
           {activeTab === Tab.DASHBOARD && (
             <Dashboard 
               stats={stats} 
@@ -560,11 +536,7 @@ const App: React.FC = () => {
             />
           )}
           {activeTab === Tab.JOURNAL && (
-            <Journal 
-               logs={notes} 
-               onUpdateLog={handleUpdateLog} 
-               onDeleteLog={handleDeleteLog} 
-            />
+            <Journal logs={notes} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
           )}
           {activeTab === Tab.APPS && <Apps />}
           {activeTab === Tab.CALENDAR && (
@@ -576,17 +548,11 @@ const App: React.FC = () => {
               setViewDate={setViewDate}
             />
           )}
-          {activeTab === Tab.AI && (
-            <AIAssistant 
-              onClose={() => setActiveTab(Tab.DASHBOARD)} 
-              user={session.user}
-              onRefreshData={refreshData}
-            />
-          )}
+          {/* REMOVED AIAssistant from here to fix stacking context */}
         </div>
       </main>
 
-      {/* Right Panel (Dashboard Only) (NOW ON RIGHT) */}
+      {/* Right Panel */}
       {activeTab === Tab.DASHBOARD && (
         <RightPanel 
           isSnowing={isSnowing} 
@@ -594,6 +560,15 @@ const App: React.FC = () => {
           schedule={todaysSchedule}
           hydration={stats.hydration}
           onUpdateHydration={handleUpdateHydration}
+        />
+      )}
+
+      {/* AI ASSISTANT: MOVED HERE (GLOBAL LAYER) */}
+      {activeTab === Tab.AI && (
+        <AIAssistant 
+          onClose={() => setActiveTab(Tab.DASHBOARD)} 
+          user={session.user}
+          onRefreshData={refreshData}
         />
       )}
     </div>

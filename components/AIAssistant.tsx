@@ -363,7 +363,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 md:p-8 animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 md:p-8 animate-in fade-in duration-300">
       <div className="w-full max-w-7xl h-[90vh] flex rounded-3xl overflow-hidden border border-purple-500/20 shadow-[0_0_100px_rgba(139,0,255,0.1)] bg-[#050505] relative">
         <div className="absolute inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_4px,6px_100%]" />
         
