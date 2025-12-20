@@ -23,61 +23,58 @@ export const MOCK_TASKS: Task[] = [
   { id: '4', title: 'Meditation (20m)', status: 'TODO', category: 'PERSONAL', frequency: 'DAILY', dueDate: '22:00' },
 ];
 
+// UPDATED WEEKLY SCHEDULE
 export const WEEKLY_WORKOUTS: GymSession[] = [
-  { day: 'Mon', focus: 'Push A', completed: false },
-  { day: 'Tue', focus: 'Pull A', completed: false },
-  { day: 'Wed', focus: 'Legs A', completed: false },
-  { day: 'Thu', focus: 'Rest', completed: false },
-  { day: 'Fri', focus: 'Push B', completed: false },
-  { day: 'Sat', focus: 'Pull B', completed: false },
-  { day: 'Sun', focus: 'Legs B', completed: false },
+  { day: 'Mon', focus: 'Upper Body A', completed: false },
+  { day: 'Tue', focus: 'Lower Body A', completed: false },
+  { day: 'Wed', focus: 'Cardio', completed: false },
+  { day: 'Thu', focus: 'Upper Body B', completed: false },
+  { day: 'Fri', focus: 'Lower Body B', completed: false },
+  { day: 'Sat', focus: 'Cardio Challenge', completed: false },
+  { day: 'Sun', focus: 'Active Recovery', completed: false },
 ];
 
+// UPDATED EXERCISE DATABASE
 export const WORKOUT_PLAN: Record<string, WorkoutExercise[]> = {
-  'Push A': [
-    { id: 'bp_flat', name: 'Flat Bench Press', sets: 3, reps: '5-8', target: 'Chest/Strength' },
-    { id: 'ohp_bar', name: 'Overhead Press', sets: 3, reps: '8-10', target: 'Shoulders' },
+  'Upper Body A': [
+    { id: 'bp_flat', name: 'Bench Press', sets: 3, reps: '5-8', target: 'Strength' },
+    { id: 'bb_row', name: 'Bent Over Barbell Rows', sets: 3, reps: '6-8', target: 'Back' },
+    { id: 'ohp', name: 'Overhead Press', sets: 3, reps: '6-10', target: 'Shoulders' },
+    { id: 'pull_up', name: 'Pull-ups / Lat Pulldowns', sets: 3, reps: '8-10', target: 'Lats' },
+    { id: 'face_pull', name: 'Face Pulls', sets: 3, reps: '15', target: 'Shoulder Health' }
+  ],
+  'Lower Body A': [
+    { id: 'squat', name: 'Barbell Squats', sets: 3, reps: '5-8', target: 'Quads/Core' },
+    { id: 'rdl', name: 'Romanian Deadlifts', sets: 3, reps: '8-10', target: 'Hamstrings' },
+    { id: 'lunge', name: 'Walking Lunges', sets: 3, reps: '10/leg', target: 'Glutes/Quads' },
+    { id: 'calf', name: 'Calf Raises', sets: 4, reps: '15', target: 'Calves' },
+    { id: 'plank', name: 'Plank', sets: 3, reps: '60s', target: 'Core Stability' }
+  ],
+  'Cardio': [
+    { id: 'run_60', name: 'Running (Zone 2)', sets: 1, reps: '60 min', target: 'Mitochondria' },
+    { id: 'stretch', name: 'Dynamic Stretching', sets: 1, reps: '10 min', target: 'Mobility' }
+  ],
+  'Upper Body B': [
     { id: 'inc_db', name: 'Incline Dumbbell Press', sets: 3, reps: '10-12', target: 'Upper Chest' },
-    { id: 'lat_raise', name: 'Lateral Raises', sets: 4, reps: '15-20', target: 'Side Delts' },
-    { id: 'tri_push', name: 'Tricep Rope Pushdown', sets: 3, reps: '12-15', target: 'Triceps' }
+    { id: 'cable_row', name: 'Seated Cable Row', sets: 3, reps: '10-12', target: 'Mid Back' },
+    { id: 'lat_raise', name: 'Lateral Raises', sets: 4, reps: '12-15', target: 'Side Delts' },
+    { id: 'tri_push', name: 'Tricep Pushdowns', sets: 3, reps: '12-15', target: 'Triceps' },
+    { id: 'curl', name: 'Bicep Curls', sets: 3, reps: '12-15', target: 'Biceps' }
   ],
-  'Pull A': [
-    { id: 'pull_up', name: 'Weighted Pull-Ups', sets: 3, reps: '6-8', target: 'Lats' },
-    { id: 'bb_row', name: 'Barbell Rows', sets: 3, reps: '8-10', target: 'Back Thickness' },
-    { id: 'face_pull', name: 'Face Pulls', sets: 4, reps: '15-20', target: 'Rear Delts' },
-    { id: 'shrug', name: 'Dumbbell Shrugs', sets: 3, reps: '12-15', target: 'Traps' },
-    { id: 'ham_curl', name: 'Hammer Curls', sets: 3, reps: '10-12', target: 'Biceps' }
+  'Lower Body B': [
+    { id: 'dl', name: 'Deadlifts', sets: 3, reps: '5', target: 'Posterior Chain' },
+    { id: 'leg_press', name: 'Leg Press', sets: 3, reps: '10-12', target: 'Quads' },
+    { id: 'leg_curl', name: 'Leg Curls (Machine)', sets: 3, reps: '12-15', target: 'Hamstrings' },
+    { id: 'leg_ext', name: 'Leg Extensions', sets: 3, reps: '12-15', target: 'Quads' },
+    { id: 'abs', name: 'Hanging Leg Raises', sets: 3, reps: '10-15', target: 'Abs' }
   ],
-  'Legs A': [
-    { id: 'squat', name: 'Barbell Squat', sets: 3, reps: '5-8', target: 'Quads/Core' },
-    { id: 'rdl', name: 'Romanian Deadlift', sets: 3, reps: '8-10', target: 'Hamstrings' },
-    { id: 'leg_press', name: 'Leg Press', sets: 3, reps: '12-15', target: 'Quads' },
-    { id: 'leg_ext', name: 'Leg Extensions', sets: 3, reps: '15-20', target: 'Isolation' },
-    { id: 'calf_stand', name: 'Standing Calf Raise', sets: 4, reps: '15-20', target: 'Calves' }
+  'Cardio Challenge': [
+    { id: 'run_int', name: 'Interval Run', sets: 1, reps: '60 min', target: 'Heart Rate Spike' },
+    { id: 'cool', name: 'Cooldown Walk', sets: 1, reps: '10 min', target: 'Recovery' }
   ],
-  'Push B': [
-    { id: 'inc_bb', name: 'Incline Barbell Press', sets: 3, reps: '8-10', target: 'Upper Chest' },
-    { id: 'db_press', name: 'Dumbbell Shoulder Press', sets: 3, reps: '10-12', target: 'Shoulders' },
-    { id: 'dips', name: 'Weighted Dips', sets: 3, reps: '10-12', target: 'Chest/Tris' },
-    { id: 'flys', name: 'Cable Flys', sets: 3, reps: '15-20', target: 'Isolation' },
-    { id: 'skull', name: 'Skullcrushers', sets: 3, reps: '10-12', target: 'Triceps' }
-  ],
-  'Pull B': [
-    { id: 'lat_pull', name: 'Lat Pulldowns', sets: 3, reps: '10-12', target: 'Lats' },
-    { id: 'chest_row', name: 'Chest Supported Row', sets: 3, reps: '10-12', target: 'Upper Back' },
-    { id: 'rear_fly', name: 'Rear Delt Fly', sets: 3, reps: '15-20', target: 'Rear Delts' },
-    { id: 'preach', name: 'Preacher Curls', sets: 3, reps: '12-15', target: 'Biceps' },
-    { id: 'inc_curl', name: 'Incline Dumbbell Curl', sets: 3, reps: '10-12', target: 'Peak' }
-  ],
-  'Legs B': [
-    { id: 'hack', name: 'Hack Squat', sets: 3, reps: '8-10', target: 'Quads' },
-    { id: 'split', name: 'Bulgarian Split Squat', sets: 3, reps: '10-12', target: 'Glutes' },
-    { id: 'leg_curl', name: 'Lying Leg Curls', sets: 4, reps: '12-15', target: 'Hamstrings' },
-    { id: 'calf_sit', name: 'Seated Calf Raise', sets: 4, reps: '15-20', target: 'Calves' }
-  ],
-  'Rest': [
-    { id: 'cardio', name: 'Light Cardio', sets: 1, reps: '30 mins', target: 'Recovery' },
-    { id: 'stretch', name: 'Mobility Work', sets: 1, reps: '15 mins', target: 'Health' }
+  'Active Recovery': [
+    { id: 'low_impact', name: 'Elliptical / Bike / Incline Walk', sets: 1, reps: '60 min', target: 'Joint Health' },
+    { id: 'mobility', name: 'Full Body Mobility', sets: 1, reps: '20 min', target: 'Flexibility' }
   ]
 };
 

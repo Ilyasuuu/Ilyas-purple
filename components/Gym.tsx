@@ -713,10 +713,6 @@ const Gym: React.FC<GymProps> = ({
                         {sessions[activeSessionIndex].focus}
                     </h2>
                   </div>
-                  <div className="text-right">
-                     <p className="text-xs text-gray-400 font-mono uppercase">Session Volume</p>
-                     <p className="text-xl font-mono text-white">{totalTonnage.toLocaleString()} <span className="text-sm text-gray-500">kg</span></p>
-                  </div>
                </div>
 
                {/* Scrollable Exercise List */}
