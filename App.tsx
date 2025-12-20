@@ -312,8 +312,23 @@ const App: React.FC = () => {
   const handleUpdateHydration = async (amount: number) => {
     if (!session) return;
     const newTotal = Math.max(0, Math.min(stats.hydration + amount, 5000));
+    
+    // 1. Update Local State & UI
     setStats(prev => ({ ...prev, hydration: newTotal }));
-    await supabase.from('user_stats').update({ hydration_current: newTotal, hydration_date: new Date().toDateString() }).eq('user_id', session.user.id);
+    
+    // 2. Update Current Stats (for the progress bar)
+    await supabase.from('user_stats').update({ 
+        hydration_current: newTotal, 
+        hydration_date: new Date().toDateString() 
+    }).eq('user_id', session.user.id);
+
+    // 3. UPSERT into History Log (For the AI to read later)
+    const todayISO = new Date().toISOString().split('T')[0];
+    await supabase.from('hydration_logs').upsert({ 
+        user_id: session.user.id, 
+        date: todayISO, 
+        amount: newTotal 
+    }, { onConflict: 'user_id, date' });
   };
 
   useEffect(() => {

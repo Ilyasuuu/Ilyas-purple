@@ -1,7 +1,7 @@
 
 import { supabase } from "../lib/supabaseClient";
 
-// 1. Safe API Key Retrieval
+// 1. Safe API Retrieval
 const getAPIKey = () => {
   try {
     if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
@@ -62,64 +62,57 @@ Purple: "Protocol updated. Gains recorded."
 
 // 3. The Context Engine (Fetches Tasks, Schedule, & Logs)
 const buildContext = async (userId: string) => {
-  const today = new Date().toISOString().split('T')[0];
-
-  // A. Stats
+  // A. Fetch User Stats
   const { data: stats } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
   
-  // B. Active Tasks (Protocol)
-  const { data: tasks } = await supabase.from('tasks').select('*').eq('user_id', userId).neq('status', 'DONE').limit(15);
+  // B. Fetch Pending Tasks
+  const { data: tasks } = await supabase.from('tasks').select('*').eq('user_id', userId).eq('status', 'TODO').limit(10);
   
-  // C. Schedule (Today & Tomorrow)
-  const { data: schedule } = await supabase.from('schedule_blocks')
-    .select('*')
-    .eq('user_id', userId)
-    .gte('date', today)
-    .order('date', { ascending: true })
-    .order('start_time', { ascending: true })
-    .limit(10);
+  // C. Fetch Recent Training
+  const { data: workouts } = await supabase.from('training_logs').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5);
 
-  // D. FULL LOGS ACCESS (Fixed: Increased limit & removed truncation)
-  const { data: logs } = await supabase.from('neural_logs')
-    .select('id, title, content, mood, created_at')
+  // D. NEW: Fetch Hydration History (Last 7 Days)
+  const { data: hydroHistory } = await supabase.from('hydration_logs')
+    .select('date, amount')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(10);
+    .order('date', { ascending: false })
+    .limit(7);
 
-  // E. Chat History
+  // E. Fetch Chat History
   const { data: history } = await supabase.from('chat_history')
     .select('role, content, created_at')
     .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .limit(20);
+    .order('created_at', { ascending: true });
 
   const historyMessages = history?.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'assistant',
     content: msg.content
   })) || [];
 
+  const now = new Date();
+  const timeContext = `[SYSTEM CLOCK]
+  Date: ${now.toLocaleDateString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })})
+  Time: ${now.toLocaleTimeString()}
+  `;
+
   // Construct System Context
   const systemContext = `
-    [SYSTEM TIME]: ${new Date().toLocaleString()}
-    
-    [USER STATS]
+    ${timeContext}
+
+    [CURRENT USER CONTEXT]
     - Level: ${stats?.level || 1} | XP: ${stats?.xp || 0}
+    - Weight: ${stats?.current_weight || "Unknown"}kg
+    - Streak: ${stats?.streak || 0} days
+    - Hydration Today: ${stats?.hydration_current || 0}ml
     
-    [ACTIVE PROTOCOL (TASKS)]
-    ${tasks?.map((t: any) => `- ${t.title} (${t.category}) [${t.status}]`).join('\n') || "No active tasks."}
+    [HYDRATION HISTORY (LAST 7 DAYS)]
+    ${hydroHistory?.map((h: any) => `- ${h.date}: ${h.amount}ml`).join('\n') || "No history logged yet."}
     
-    [TACTICAL FORECAST (SCHEDULE)]
-    ${schedule?.map((s: any) => `- ${s.date} @ ${s.start_time}: ${s.title} (${s.type})`).join('\n') || "No upcoming ops."}
+    [OPEN LOOPS (TASKS)]
+    ${tasks?.map((t: any) => `- ${t.title} (${t.category})`).join('\n') || "Nothing pending."}
     
-    [NEURAL LOGS (JOURNAL ARCHIVE)]
-    ${logs?.map((l: any) => `
-    --- ENTRY ---
-    TITLE: ${l.title}
-    MOOD: ${l.mood}
-    DATE: ${new Date(l.created_at).toLocaleDateString()}
-    CONTENT:
-    ${l.content}
-    -------------`).join('\n') || "No recent logs found."}
+    [RECENT ACTIVITY (GYM)]
+    ${workouts?.map((w: any) => `- ${w.session_name} (${w.total_volume}kg vol)`).join('\n') || "No recent logs."}
   `;
 
   return { systemContext, historyMessages };

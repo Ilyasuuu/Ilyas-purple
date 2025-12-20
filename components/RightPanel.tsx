@@ -47,8 +47,22 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
   useEffect(() => {
     const updateGymTimer = () => {
       const now = new Date();
-      const splits = ["FULL BODY", "PUSH A", "PULL A", "LEGS A", "PUSH B", "PULL B", "LEGS B"];
-      setWorkoutSplit(splits[now.getDay()]);
+      
+      // Determine Split based on Day (0-6 Sun-Sat)
+      const dayIndex = now.getDay();
+      
+      // Updated to match new 7-Day Upper/Lower/Cardio Split
+      const splits = [
+        "ACTIVE RECOVERY / MOBILITY",   // 0 Sun
+        "UPPER BODY A / STRENGTH",      // 1 Mon
+        "LOWER BODY A / SQUAT FOCUS",   // 2 Tue
+        "CARDIO / ENGINE BUILDER",      // 3 Wed
+        "UPPER BODY B / HYPERTROPHY",   // 4 Thu
+        "LOWER BODY B / POSTERIOR",     // 5 Fri
+        "CARDIO / INTERVAL CHALLENGE"   // 6 Sat
+      ];
+      
+      setWorkoutSplit(splits[dayIndex]);
 
       let target = new Date();
       const todaysGym = schedule.filter(b => b.type === 'GYM').sort((a, b) => a.startTime.localeCompare(b.startTime));
