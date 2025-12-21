@@ -47,10 +47,10 @@ If no action is needed, do NOT output JSON.
 3. **LOGS (Journal)**
    - LOG:    { "action": "LOG_NOTE", "payload": { "title": "String", "content": "String", "mood": "FLOW/ZEN/CHAOS/IDEA" } }
 
-### RULES:
-1. **Search First**: Look at the [CONTEXT] provided below.
-2. **Precision**: When deleting or updating, use unique keywords from the title you see in the context.
-3. **JSON Only**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
+### CRITICAL RULES:
+1. **TIME AWARENESS**: Trust the [SYSTEM CLOCK] provided in the context absolutely. Do not hallucinate the date.
+2. **JSON STRICTNESS**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
+3. **NO TRAILING TEXT**: Do not output any text *after* the JSON block.
 
 ### EXAMPLE INTERACTION:
 User: "Move my gym task to done."
@@ -71,31 +71,34 @@ const buildContext = async (userId: string) => {
   // C. Fetch Recent Training
   const { data: workouts } = await supabase.from('training_logs').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5);
 
-  // D. NEW: Fetch Hydration History (Last 7 Days)
+  // D. Fetch Hydration History (Last 7 Days)
   const { data: hydroHistory } = await supabase.from('hydration_logs')
     .select('date, amount')
     .eq('user_id', userId)
     .order('date', { ascending: false })
     .limit(7);
 
-  // E. Fetch Chat History
+  // E. Fetch Chat History (LIMITED to last 15 to prevent stale context)
   const { data: history } = await supabase.from('chat_history')
     .select('role, content, created_at')
     .eq('user_id', userId)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: false }) // Get newest first
+    .limit(15);
 
-  const historyMessages = history?.map(msg => ({
+  // Reverse back to chronological order for the LLM
+  const historyMessages = history?.reverse().map(msg => ({
     role: msg.role === 'user' ? 'user' : 'assistant',
     content: msg.content
   })) || [];
 
   const now = new Date();
   const timeContext = `[SYSTEM CLOCK]
-  Date: ${now.toLocaleDateString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })})
-  Time: ${now.toLocaleTimeString()}
+  CURRENT DATETIME: ${now.toISOString()}
+  Read-able Date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+  Current Time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
   `;
 
-  // Construct System Context
+  // Construct System Context - TIME IS PARAMOUNT, placed at the top
   const systemContext = `
     ${timeContext}
 

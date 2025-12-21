@@ -9,9 +9,10 @@ interface RightPanelProps {
   schedule: ScheduleBlock[];
   hydration: number;
   onUpdateHydration: (amount: number) => void;
+  gymCompleted?: boolean; // New prop for sync
 }
 
-const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedule, hydration, onUpdateHydration }) => {
+const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedule, hydration, onUpdateHydration, gymCompleted }) => {
   const [weather, setWeather] = useState<{ temp: number; code: number; description: string } | null>(null);
   const [isHydrationModalOpen, setIsHydrationModalOpen] = useState(false);
   const DAILY_GOAL = 3000;
@@ -46,6 +47,13 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
   // Gym Timer Logic
   useEffect(() => {
     const updateGymTimer = () => {
+      // IF GYM COMPLETED PROP IS TRUE, FORCE DONE STATE
+      if (gymCompleted) {
+        setGymStatus('DONE');
+        setGymTimer("00:00:00");
+        return;
+      }
+
       const now = new Date();
       // Updated to match new 7-Day Upper/Lower/Cardio Split
       const dayIndex = now.getDay();
@@ -76,7 +84,11 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
       }
 
       if (now > target) {
-        setGymStatus('DONE'); setGymTimer("00:00:00"); return;
+        // Only set DONE if time passed AND no more blocks. 
+        // But the primary "DONE" check is handled by gymCompleted prop now.
+        // We'll reset timer here if late at night.
+        setGymTimer("00:00:00");
+        return;
       }
 
       const diff = target.getTime() - now.getTime();
@@ -92,7 +104,7 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
     const timer = setInterval(updateGymTimer, 1000);
     updateGymTimer();
     return () => clearInterval(timer);
-  }, [schedule]);
+  }, [schedule, gymCompleted]); // Added gymCompleted dependency
 
   const getWeatherDescription = (code: number) => {
     if (code === 0) return "Clear Sky";

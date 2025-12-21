@@ -482,6 +482,10 @@ const App: React.FC = () => {
   if (loadingSession) return <div className="h-screen w-full bg-black flex items-center justify-center font-orbitron text-white text-xl animate-pulse">SYSTEM BOOT...</div>;
   if (!session) return <Auth />;
 
+  // DERIVE GYM COMPLETION STATUS FOR WIDGET SYNC
+  const todayDayName = new Date().toLocaleDateString('en-US', { weekday: 'short' });
+  const isGymDone = gymSessions.find(s => s.day === todayDayName)?.completed || false;
+
   return (
     <div className="flex h-screen bg-[#050505] bg-grid text-white overflow-hidden relative selection:bg-purple-500/30">
       {isSnowing && <SnowEffect />}
@@ -563,7 +567,6 @@ const App: React.FC = () => {
               setViewDate={setViewDate}
             />
           )}
-          {/* REMOVED AIAssistant from here to fix stacking context */}
         </div>
       </main>
 
@@ -575,6 +578,7 @@ const App: React.FC = () => {
           schedule={todaysSchedule}
           hydration={stats.hydration}
           onUpdateHydration={handleUpdateHydration}
+          gymCompleted={isGymDone} // Passed calculated status
         />
       )}
 

@@ -199,7 +199,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
             user_id: userId, title: payload.title, content: payload.content, mood: payload.mood || 'ZEN', is_encrypted: false 
         });
       }
-      onRefreshData();
+      
+      console.log("Refreshing Data...");
+      onRefreshData(); // CRITICAL: Refresh UI after action
+      
     } catch (err) {
       console.error("AI Action Failed:", err);
     }
@@ -334,15 +337,22 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
 
     let responseText = await sendMessageToUnit01(user.id, userMsg, currentSessionId, currentAttachment || undefined, userMsgId, aiMsgId);
 
-    const jsonMatch = responseText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+    // ROBUST REGEX for catching JSON block (optional "json" tag, tolerant whitespace)
+    const jsonMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    
     if (jsonMatch && jsonMatch[1]) {
         try {
+            console.log("JSON DETECTED:", jsonMatch[1]);
             const command = JSON.parse(jsonMatch[1]);
             await executeAIAction(command);
+            
+            // Clean up the response text by removing the JSON block for the UI
             responseText = responseText.replace(jsonMatch[0], '').trim();
-            if (!responseText) responseText = "Action executed successfully.";
+            if (!responseText) responseText = "Command executed successfully.";
+            
+            // Update the AI message in DB with cleaned text
             await supabase.from('chat_history').update({ content: responseText }).eq('id', aiMsgId);
-        } catch (e) { console.error("AI Command Error", e); }
+        } catch (e) { console.error("AI Command Parsing Error", e); }
     }
 
     if(isMounted.current) {
