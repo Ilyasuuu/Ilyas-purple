@@ -409,6 +409,20 @@ const App: React.FC = () => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, title: newTitle } : t));
     await supabase.from('tasks').update({ title: newTitle }).eq('id', id);
   };
+  
+  // NEW: HANDLE MOVE TASK (Drag and Drop Frequency Update)
+  const handleMoveTask = async (id: string, newFrequency: TaskFrequency) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task || !session || task.frequency === newFrequency) return;
+
+    // Optimistic Update
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, frequency: newFrequency } : t));
+
+    // Encode for DB: "FREQUENCY::CATEGORY"
+    const encodedCategory = `${newFrequency}::${task.category}`;
+    await supabase.from('tasks').update({ category: encodedCategory }).eq('id', id);
+  };
+
   const handleAddBlock = async (block: ScheduleBlock) => {
     if (!session) return;
     const dateStr = viewDate.toISOString().split('T')[0];
@@ -535,6 +549,7 @@ const App: React.FC = () => {
               onToggleTask={handleToggleTask} 
               onDeleteTask={handleDeleteTask}
               onEditTask={handleEditTask}
+              onMoveTask={handleMoveTask}
               pomoState={pomoState}
               onPomoControl={handlePomoControl}
             />

@@ -9,6 +9,7 @@ interface TasksProps {
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
   onEditTask: (id: string, newTitle: string) => void;
+  onMoveTask: (id: string, newFrequency: TaskFrequency) => void;
   pomoState: PomoState;
   onPomoControl: (action: 'START' | 'PAUSE' | 'RESET' | 'MODE', payload?: any) => void;
 }
@@ -19,11 +20,13 @@ const MODES: Record<FocusMode, { label: string; xp: number }> = {
   QUICK: { label: 'QUICK', xp: 30 },
 };
 
-const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteTask, onEditTask, pomoState, onPomoControl }) => {
+const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteTask, onEditTask, onMoveTask, pomoState, onPomoControl }) => {
   const [newTaskInput, setNewTaskInput] = useState('');
   const [selectedFrequency, setSelectedFrequency] = useState<TaskFrequency>('DAILY');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState('');
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<TaskFrequency | null>(null);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -90,6 +93,33 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteT
     }
   };
 
+  // Drag and Drop Handlers
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('text/plain', id);
+    setDraggedTaskId(id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, freq: TaskFrequency) => {
+    e.preventDefault(); // Necessary to allow dropping
+    if (dragOverColumn !== freq) {
+      setDragOverColumn(freq);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Optional: could clear dragOverColumn, but checking if we left the container is tricky without ref comparison
+  };
+
+  const handleDrop = (e: React.DragEvent, freq: TaskFrequency) => {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    if (id) {
+      onMoveTask(id, freq);
+    }
+    setDraggedTaskId(null);
+    setDragOverColumn(null);
+  };
+
   // SVG Logic for Pomodoro
   const radius = 80;
   const circumference = 2 * Math.PI * radius;
@@ -100,75 +130,89 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteT
   const weeklyTasks = tasks.filter(t => t.frequency === 'WEEKLY');
   const monthlyTasks = tasks.filter(t => t.frequency === 'MONTHLY');
 
-  const renderTaskList = (list: Task[], title: string, icon: React.ReactNode, borderColor: string, emptyMsg: string) => (
-    <div className={`glass-panel p-4 rounded-xl border ${borderColor} flex flex-col h-full min-h-[300px]`}>
-      <div className="flex items-center gap-2 mb-4 pb-2 border-b border-white/5">
-        {icon}
-        <h3 className="font-orbitron font-bold text-white tracking-widest text-sm">{title}</h3>
-        <span className="ml-auto text-xs font-mono text-gray-500">{list.length} ACTIVE</span>
-      </div>
-      
-      <div className="space-y-2 flex-1 overflow-y-auto no-scrollbar pr-1">
-        {list.length === 0 && (
-          <div className="text-center py-10 opacity-30">
-            <p className="font-rajdhani text-sm">{emptyMsg}</p>
-          </div>
-        )}
-        {list.map(task => (
-            <div 
-              key={task.id} 
-              className="p-3 rounded-lg flex items-start gap-3 group bg-black/40 hover:bg-white/5 transition-all relative border border-white/5 hover:border-purple-500/30"
-            >
-              {/* Checkbox */}
-              <button 
-                onClick={() => onToggleTask(task.id)}
-                className={`flex-shrink-0 min-w-[20px] h-5 mt-0.5 rounded border flex items-center justify-center transition-all duration-300 ${task.status === 'DONE' ? 'bg-purple-600 border-purple-600 shadow-[0_0_10px_#9333ea]' : 'border-gray-600 hover:border-purple-400'}`}
-              >
-                 {task.status === 'DONE' && <Check size={12} className="text-white" />}
-              </button>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                {editingId === task.id ? (
-                  <div className="flex items-start gap-2">
-                    <textarea 
-                      autoFocus
-                      value={editInput}
-                      onChange={(e) => setEditInput(e.target.value)}
-                      onBlur={saveEditing}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && saveEditing()}
-                      className="bg-black/50 text-white w-full px-2 py-1 rounded border border-purple-500 outline-none font-rajdhani text-sm resize-none"
-                      rows={2}
-                    />
-                    <button onClick={saveEditing} className="text-green-400 mt-1"><Check size={16} /></button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    <p 
-                      onClick={() => startEditing(task)}
-                      className={`font-rajdhani text-sm cursor-text hover:text-purple-200 transition-colors break-words whitespace-pre-wrap leading-relaxed ${task.status === 'DONE' ? 'text-gray-600 line-through' : 'text-white'}`}
-                    >
-                      {task.title}
-                    </p>
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border self-start ${getCategoryColor(task.category)}`}>
-                      {task.category}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Delete (Hover) */}
-              <button 
-                onClick={() => onDeleteTask(task.id)}
-                className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
-              >
-                <Trash2 size={14} />
-              </button>
+  const renderTaskList = (list: Task[], title: string, icon: React.ReactNode, borderColor: string, emptyMsg: string, freq: TaskFrequency) => {
+    const isDragOver = dragOverColumn === freq;
+    
+    return (
+      <div 
+        className={`glass-panel p-4 rounded-xl border flex flex-col h-full min-h-[300px] transition-all duration-300 ${isDragOver ? 'bg-white/10 border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.2)]' : borderColor}`}
+        onDragOver={(e) => handleDragOver(e, freq)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, freq)}
+      >
+        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-white/5 pointer-events-none">
+          {icon}
+          <h3 className="font-orbitron font-bold text-white tracking-widest text-sm">{title}</h3>
+          <span className="ml-auto text-xs font-mono text-gray-500">{list.length} ACTIVE</span>
+        </div>
+        
+        <div className="space-y-2 flex-1 overflow-y-auto no-scrollbar pr-1">
+          {list.length === 0 && (
+            <div className="text-center py-10 opacity-30 pointer-events-none">
+              <p className="font-rajdhani text-sm">{emptyMsg}</p>
             </div>
-        ))}
+          )}
+          {list.map(task => (
+              <div 
+                key={task.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, task.id)}
+                className={`
+                  p-3 rounded-lg flex items-start gap-3 group bg-black/40 hover:bg-white/5 transition-all relative border border-white/5 hover:border-purple-500/30 cursor-grab active:cursor-grabbing
+                  ${draggedTaskId === task.id ? 'opacity-50 border-dashed border-white/50' : ''}
+                `}
+              >
+                {/* Checkbox */}
+                <button 
+                  onClick={() => onToggleTask(task.id)}
+                  className={`flex-shrink-0 min-w-[20px] h-5 mt-0.5 rounded border flex items-center justify-center transition-all duration-300 ${task.status === 'DONE' ? 'bg-purple-600 border-purple-600 shadow-[0_0_10px_#9333ea]' : 'border-gray-600 hover:border-purple-400'}`}
+                >
+                   {task.status === 'DONE' && <Check size={12} className="text-white" />}
+                </button>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  {editingId === task.id ? (
+                    <div className="flex items-start gap-2">
+                      <textarea 
+                        autoFocus
+                        value={editInput}
+                        onChange={(e) => setEditInput(e.target.value)}
+                        onBlur={saveEditing}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && saveEditing()}
+                        className="bg-black/50 text-white w-full px-2 py-1 rounded border border-purple-500 outline-none font-rajdhani text-sm resize-none"
+                        rows={2}
+                      />
+                      <button onClick={saveEditing} className="text-green-400 mt-1"><Check size={16} /></button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      <p 
+                        onClick={() => startEditing(task)}
+                        className={`font-rajdhani text-sm cursor-text hover:text-purple-200 transition-colors break-words whitespace-pre-wrap leading-relaxed ${task.status === 'DONE' ? 'text-gray-600 line-through' : 'text-white'}`}
+                      >
+                        {task.title}
+                      </p>
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border self-start ${getCategoryColor(task.category)}`}>
+                        {task.category}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Delete (Hover) */}
+                <button 
+                  onClick={() => onDeleteTask(task.id)}
+                  className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="flex flex-col h-full space-y-6">
@@ -215,9 +259,9 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAddTask, onToggleTask, onDeleteT
         
         {/* TASK COLUMNS (Takes 3/4 space) */}
         <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4 h-full overflow-y-auto pb-20 md:pb-0">
-           {renderTaskList(dailyTasks, 'DAILY PROTOCOL', <Repeat size={16} className="text-green-400" />, 'border-green-500/20', 'No daily directives.')}
-           {renderTaskList(weeklyTasks, 'WEEKLY OBJECTIVES', <Calendar size={16} className="text-yellow-400" />, 'border-yellow-500/20', 'No weekly goals set.')}
-           {renderTaskList(monthlyTasks, 'MONTHLY VISION', <Flag size={16} className="text-purple-400" />, 'border-purple-500/20', 'No monthly vision.')}
+           {renderTaskList(dailyTasks, 'DAILY PROTOCOL', <Repeat size={16} className="text-green-400" />, 'border-green-500/20', 'No daily directives.', 'DAILY')}
+           {renderTaskList(weeklyTasks, 'WEEKLY OBJECTIVES', <Calendar size={16} className="text-yellow-400" />, 'border-yellow-500/20', 'No weekly goals set.', 'WEEKLY')}
+           {renderTaskList(monthlyTasks, 'MONTHLY VISION', <Flag size={16} className="text-purple-400" />, 'border-purple-500/20', 'No monthly vision.', 'MONTHLY')}
         </div>
 
         {/* SIDEBAR UTILITIES (Timer & Info) */}
