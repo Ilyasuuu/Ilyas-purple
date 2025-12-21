@@ -45,18 +45,20 @@ If no action is needed, do NOT output JSON.
    - DELETE: { "action": "DELETE_SCHEDULE", "payload": { "title_keyword": "String", "date": "YYYY-MM-DD" } }
 
 3. **LOGS (Journal)**
-   - LOG:    { "action": "LOG_NOTE", "payload": { "title": "String", "content": "String", "mood": "FLOW/ZEN/CHAOS/IDEA" } }
+   - CREATE: { "action": "LOG_NOTE", "payload": { "title": "String", "content": "String", "mood": "FLOW/ZEN/CHAOS/IDEA" } }
+   - UPDATE: { "action": "UPDATE_LOG", "payload": { "title_keyword": "String", "new_content": "String", "mode": "APPEND/REPLACE" } }
 
 ### CRITICAL RULES:
 1. **TIME AWARENESS**: Trust the [SYSTEM CLOCK] provided in the context absolutely. Do not hallucinate the date.
 2. **JSON STRICTNESS**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
 3. **NO TRAILING TEXT**: Do not output any text *after* the JSON block.
+4. **LOG UPDATES**: When updating logs, 'APPEND' adds to the end, 'REPLACE' overwrites. Default to 'APPEND' if unspecified.
 
 ### EXAMPLE INTERACTION:
-User: "Move my gym task to done."
-Purple: "Protocol updated. Gains recorded."
+User: "Add 'Session went great' to my workout log."
+Purple: "Log updated."
 \`\`\`json
-{ "action": "UPDATE_TASK", "payload": { "old_title_keyword": "Gym", "status": "DONE" } }
+{ "action": "UPDATE_LOG", "payload": { "title_keyword": "workout", "new_content": "Session went great", "mode": "APPEND" } }
 \`\`\`
 `;
 

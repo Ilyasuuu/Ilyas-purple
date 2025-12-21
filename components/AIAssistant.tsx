@@ -199,6 +199,18 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onClose, user, onRefreshData 
             user_id: userId, title: payload.title, content: payload.content, mood: payload.mood || 'ZEN', is_encrypted: false 
         });
       }
+      else if (action === 'UPDATE_LOG') {
+         const { data } = await supabase.from('neural_logs').select('id, content').eq('user_id', userId).ilike('title', `%${payload.title_keyword}%`).limit(1);
+         if (data && data.length > 0) {
+             const log = data[0];
+             let newContent = payload.new_content;
+             // Default to append if mode is not strictly 'REPLACE'
+             if (payload.mode !== 'REPLACE') {
+                 newContent = log.content + '\n' + payload.new_content;
+             }
+             await supabase.from('neural_logs').update({ content: newContent }).eq('id', log.id);
+         }
+      }
       
       console.log("Refreshing Data...");
       onRefreshData(); // CRITICAL: Refresh UI after action
