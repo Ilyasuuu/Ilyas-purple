@@ -53,6 +53,7 @@ If no action is needed, do NOT output JSON.
 2. **TIME AWARENESS**: Trust the [SYSTEM CLOCK] provided in the context absolutely.
 3. **JSON STRICTNESS**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
 4. **NO TRAILING TEXT**: Do not output any text *after* the JSON block.
+5. **MEMORY PROTOCOL**: You have access to the last 7 days of conversation. IGNORE old dates found in history. The ONLY source of truth for 'Today' is the [SYSTEM CLOCK] block provided at the start.
 
 ### EXAMPLE INTERACTION:
 User: "Add 'Session went great' to my workout log."
@@ -80,19 +81,20 @@ const buildContext = async (userId: string) => {
     .order('date', { ascending: false })
     .limit(7);
 
-  // E. Fetch Recent Journal Logs (CRITICAL FIX: This was missing)
+  // E. Fetch Recent Journal Logs
   const { data: recentLogs } = await supabase.from('neural_logs')
     .select('title, content, mood, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5);
 
-  // F. Fetch Chat History (LIMITED to last 10 to prevent stale context from overwhelming real data)
+  // F. Fetch Chat History (7-Day Rolling Memory)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: history } = await supabase.from('chat_history')
     .select('role, content, created_at')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false }) // Get newest first
-    .limit(10);
+    .gte('created_at', sevenDaysAgo) // Only fetch last 7 days
+    .order('created_at', { ascending: false }); // Get newest first
 
   // Reverse back to chronological order for the LLM
   const historyMessages = history?.reverse().map(msg => ({
@@ -100,6 +102,7 @@ const buildContext = async (userId: string) => {
     content: msg.content
   })) || [];
 
+  // Generate Fresh Time Context
   const now = new Date();
   const timeContext = `[SYSTEM CLOCK]
   CURRENT DATETIME: ${now.toISOString()}
@@ -107,7 +110,7 @@ const buildContext = async (userId: string) => {
   Current Time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
   `;
 
-  // Construct System Context - INJECTING REAL LOGS HERE
+  // Construct System Context
   const systemContext = `
     ${timeContext}
 
