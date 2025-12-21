@@ -49,10 +49,10 @@ If no action is needed, do NOT output JSON.
    - UPDATE: { "action": "UPDATE_LOG", "payload": { "title_keyword": "String", "new_content": "String", "mode": "APPEND/REPLACE" } }
 
 ### CRITICAL RULES:
-1. **TIME AWARENESS**: Trust the [SYSTEM CLOCK] provided in the context absolutely. Do not hallucinate the date.
-2. **JSON STRICTNESS**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
-3. **NO TRAILING TEXT**: Do not output any text *after* the JSON block.
-4. **LOG UPDATES**: When updating logs, 'APPEND' adds to the end, 'REPLACE' overwrites. Default to 'APPEND' if unspecified.
+1. **DATA GROUNDING**: You must ONLY discuss Tasks, Logs, or Events that are explicitly listed in the [CURRENT USER CONTEXT] below. Do NOT hallucinate logs or tasks that are not there. If the list is empty, say it is empty.
+2. **TIME AWARENESS**: Trust the [SYSTEM CLOCK] provided in the context absolutely.
+3. **JSON STRICTNESS**: The JSON block must be valid, minified, and wrapped in \`\`\`json code blocks at the very end.
+4. **NO TRAILING TEXT**: Do not output any text *after* the JSON block.
 
 ### EXAMPLE INTERACTION:
 User: "Add 'Session went great' to my workout log."
@@ -62,7 +62,7 @@ Purple: "Log updated."
 \`\`\`
 `;
 
-// 3. The Context Engine (Fetches Tasks, Schedule, & Logs)
+// 3. The Context Engine (Fetches Tasks, Schedule, Logs, & History)
 const buildContext = async (userId: string) => {
   // A. Fetch User Stats
   const { data: stats } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
@@ -80,12 +80,19 @@ const buildContext = async (userId: string) => {
     .order('date', { ascending: false })
     .limit(7);
 
-  // E. Fetch Chat History (LIMITED to last 15 to prevent stale context)
+  // E. Fetch Recent Journal Logs (CRITICAL FIX: This was missing)
+  const { data: recentLogs } = await supabase.from('neural_logs')
+    .select('title, content, mood, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  // F. Fetch Chat History (LIMITED to last 10 to prevent stale context from overwhelming real data)
   const { data: history } = await supabase.from('chat_history')
     .select('role, content, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false }) // Get newest first
-    .limit(15);
+    .limit(10);
 
   // Reverse back to chronological order for the LLM
   const historyMessages = history?.reverse().map(msg => ({
@@ -100,24 +107,35 @@ const buildContext = async (userId: string) => {
   Current Time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
   `;
 
-  // Construct System Context - TIME IS PARAMOUNT, placed at the top
+  // Construct System Context - INJECTING REAL LOGS HERE
   const systemContext = `
     ${timeContext}
 
     [CURRENT USER CONTEXT]
     - Level: ${stats?.level || 1} | XP: ${stats?.xp || 0}
-    - Weight: ${stats?.current_weight || "Unknown"}kg
     - Streak: ${stats?.streak || 0} days
     - Hydration Today: ${stats?.hydration_current || 0}ml
     
-    [HYDRATION HISTORY (LAST 7 DAYS)]
-    ${hydroHistory?.map((h: any) => `- ${h.date}: ${h.amount}ml`).join('\n') || "No history logged yet."}
-    
+    [RECENT JOURNAL LOGS]
+    ${recentLogs && recentLogs.length > 0 
+      ? recentLogs.map((l: any) => `- [${new Date(l.created_at).toLocaleDateString()}] ${l.title} (${l.mood}): "${l.content.substring(0, 100).replace(/\n/g, ' ')}..."`).join('\n')
+      : "NO LOGS FOUND. The archive is empty."
+    }
+
     [OPEN LOOPS (TASKS)]
-    ${tasks?.map((t: any) => `- ${t.title} (${t.category})`).join('\n') || "Nothing pending."}
+    ${tasks && tasks.length > 0 
+      ? tasks.map((t: any) => `- ${t.title} (${t.category})`).join('\n') 
+      : "NO PENDING TASKS."
+    }
     
     [RECENT ACTIVITY (GYM)]
-    ${workouts?.map((w: any) => `- ${w.session_name} (${w.total_volume}kg vol)`).join('\n') || "No recent logs."}
+    ${workouts && workouts.length > 0 
+      ? workouts.map((w: any) => `- ${w.session_name} (${w.total_volume}kg vol)`).join('\n') 
+      : "No recent workout logs."
+    }
+    
+    [HYDRATION HISTORY (LAST 7 DAYS)]
+    ${hydroHistory?.map((h: any) => `- ${h.date}: ${h.amount}ml`).join('\n') || "No history logged yet."}
   `;
 
   return { systemContext, historyMessages };
