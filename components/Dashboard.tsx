@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { QUOTES } from '../constants';
 import { Flame, CheckCircle, Clock, Activity, Trophy, Calendar, MapPin, Zap } from 'lucide-react';
 import { Task, UserStats, GymSession, ScheduleBlock } from '../types';
@@ -13,7 +13,8 @@ interface DashboardProps {
   toggleFocus: () => void;
   onToggleTask: (id: string) => void;
   onNavigateToSchedule: (date: string, blockId: string) => void;
-  onAddXP: (amount: number) => void;
+  nutritionState: boolean[];
+  onUpdateNutrition: (index: number, val: boolean) => void;
 }
 
 const StatCard: React.FC<{ 
@@ -47,70 +48,32 @@ const StatCard: React.FC<{
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomingSchedule, isFocusing, toggleFocus, onToggleTask, onNavigateToSchedule, onAddXP }) => {
+const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomingSchedule, isFocusing, toggleFocus, onToggleTask, onNavigateToSchedule, nutritionState, onUpdateNutrition }) => {
   const quote = QUOTES[new Date().getDate() % QUOTES.length];
   
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'DONE').length;
 
-  // --- NUTRIENT SEQUENCER STATE ---
-  const [meals, setMeals] = useState<boolean[]>([false, false, false, false]);
+  // --- NUTRIENT SEQUENCER LOCAL ANIMATION STATE ---
   const [animations, setAnimations] = useState<{id: number, left: number, val: number}[]>([]);
   const mealLabels = ["LOAD 1", "LOAD 2", "LOAD 3", "RECOVERY"];
 
-  // Initialize & Persistence for Nutrition
-  useEffect(() => {
-    const today = new Date().toDateString();
-    const saved = localStorage.getItem('ilyasuu_nutrient_log');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.date === today) {
-          setMeals(parsed.data);
-        } else {
-          // Reset for new day
-          setMeals([false, false, false, false]);
-          localStorage.removeItem('ilyasuu_nutrient_log');
-        }
-      } catch (e) {
-        setMeals([false, false, false, false]);
-      }
-    }
-  }, []);
-
   const toggleMeal = (index: number, e: React.MouseEvent<HTMLButtonElement>) => {
-    const newMeals = [...meals];
-    const isComplete = !newMeals[index];
-    newMeals[index] = isComplete;
-    setMeals(newMeals);
+    const isComplete = !nutritionState[index];
     
-    // Save to LocalStorage
-    localStorage.setItem('ilyasuu_nutrient_log', JSON.stringify({
-      date: new Date().toDateString(),
-      data: newMeals
-    }));
+    // Call Parent Handler (Upsert Logic)
+    onUpdateNutrition(index, isComplete);
 
+    // Only Trigger XP Animation if turning ON
     if (isComplete) {
-      onAddXP(10);
-      
-      // Floating Text Logic
-      const btn = e.currentTarget;
-      const rect = btn.getBoundingClientRect();
-      // Calculate a rough relative percentage or fixed offset based on the button's position in the container
-      // For simplicity in this grid, we use a key based ID and render it absolutely.
-      // Actually, rendering it inside the button container is cleaner for positioning.
-      // But button has overflow hidden usually? No, let's use a state array.
-      
       const id = Date.now();
       // Store relative index for positioning
       setAnimations(prev => [...prev, { id, left: index, val: 10 }]);
       setTimeout(() => setAnimations(prev => prev.filter(a => a.id !== id)), 1000);
-    } else {
-      onAddXP(-10); // Undo XP
     }
   };
 
-  const completedMealsCount = meals.filter(Boolean).length;
+  const completedMealsCount = nutritionState.filter(Boolean).length;
   const fuelPercentage = Math.round((completedMealsCount / 4) * 100);
 
   // --- EXISTING LOGIC ---
@@ -225,7 +188,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
          </div>
          
          <div className="flex-1 flex gap-2 sm:gap-4 items-center">
-            {meals.map((isComplete, idx) => (
+            {nutritionState.map((isComplete, idx) => (
                <button
                   key={idx}
                   onClick={(e) => toggleMeal(idx, e)}

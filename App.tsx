@@ -75,6 +75,9 @@ const App: React.FC = () => {
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
   const [physiqueLog, setPhysiqueLog] = useState<PhysiqueEntry[]>([]);
 
+  // Nutrition State
+  const [nutritionState, setNutritionState] = useState<boolean[]>([false, false, false, false]);
+
   const [isFocusing, setIsFocusing] = useState(false);
 
   const [pomoState, setPomoState] = useState<PomoState>({
@@ -112,7 +115,9 @@ const App: React.FC = () => {
     setLoadingData(true);
     try {
       const userId = session.user.id;
+      const todayISO = new Date().toISOString().split('T')[0];
 
+      // --- USER STATS ---
       const { data: statsData, error: statsError } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
       
       if (statsError && statsError.code === 'PGRST116') {
@@ -162,6 +167,25 @@ const App: React.FC = () => {
           weight: statsData.current_weight || 82.5,
           weightHistory: statsData.weight_history || [82.5]
         });
+      }
+
+      // --- NUTRITION LOGS ---
+      const { data: nutritionData } = await supabase
+        .from('nutrition_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', todayISO)
+        .single();
+      
+      if (nutritionData) {
+        setNutritionState([
+          nutritionData.meal_1 || false,
+          nutritionData.meal_2 || false,
+          nutritionData.meal_3 || false,
+          nutritionData.meal_4 || false
+        ]);
+      } else {
+        setNutritionState([false, false, false, false]);
       }
 
       // --- TASK CLEANUP & PARSING LOGIC ---
@@ -346,6 +370,7 @@ const App: React.FC = () => {
     }, { onConflict: 'user_id, date' });
   };
 
+  // GENERIC XP ADDER (Updates Local + DB)
   const handleAddXP = async (amount: number) => {
     if (!session) return;
     setStats(prev => {
@@ -354,6 +379,31 @@ const App: React.FC = () => {
       updateStatsDB(newStats);
       return newStats;
     });
+  };
+
+  const handleUpdateNutrition = async (index: number, newValue: boolean) => {
+    if (!session) return;
+    
+    const newState = [...nutritionState];
+    newState[index] = newValue;
+    setNutritionState(newState);
+
+    const todayISO = new Date().toISOString().split('T')[0];
+    const column = `meal_${index + 1}`;
+    
+    const updatePayload: any = {
+      user_id: session.user.id,
+      date: todayISO,
+      [column]: newValue
+    };
+
+    // Upsert to DB
+    await supabase.from('nutrition_logs').upsert(updatePayload, { onConflict: 'user_id, date' });
+
+    // Handle XP (Only if turning ON)
+    if (newValue) {
+       handleAddXP(10);
+    }
   };
 
   useEffect(() => {
@@ -613,7 +663,8 @@ const App: React.FC = () => {
               onToggleTask={handleToggleTask}
               upcomingSchedule={upcomingSchedule}
               onNavigateToSchedule={handleNavigateToSchedule}
-              onAddXP={handleAddXP}
+              nutritionState={nutritionState}
+              onUpdateNutrition={handleUpdateNutrition}
             />
           )}
           {activeTab === Tab.TASKS && (
