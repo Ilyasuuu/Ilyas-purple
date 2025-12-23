@@ -1,7 +1,7 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { QUOTES } from '../constants';
-import { Flame, CheckCircle, Clock, Activity, Trophy, Calendar, MapPin, ArrowRight } from 'lucide-react';
+import { Flame, CheckCircle, Clock, Activity, Trophy, Calendar, MapPin, Zap } from 'lucide-react';
 import { Task, UserStats, GymSession, ScheduleBlock } from '../types';
 
 interface DashboardProps {
@@ -12,6 +12,8 @@ interface DashboardProps {
   isFocusing: boolean;
   toggleFocus: () => void;
   onToggleTask: (id: string) => void;
+  onNavigateToSchedule: (date: string, blockId: string) => void;
+  onAddXP: (amount: number) => void;
 }
 
 const StatCard: React.FC<{ 
@@ -45,12 +47,73 @@ const StatCard: React.FC<{
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomingSchedule, isFocusing, toggleFocus, onToggleTask }) => {
+const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomingSchedule, isFocusing, toggleFocus, onToggleTask, onNavigateToSchedule, onAddXP }) => {
   const quote = QUOTES[new Date().getDate() % QUOTES.length];
   
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'DONE').length;
 
+  // --- NUTRIENT SEQUENCER STATE ---
+  const [meals, setMeals] = useState<boolean[]>([false, false, false, false]);
+  const [animations, setAnimations] = useState<{id: number, left: number, val: number}[]>([]);
+  const mealLabels = ["LOAD 1", "LOAD 2", "LOAD 3", "RECOVERY"];
+
+  // Initialize & Persistence for Nutrition
+  useEffect(() => {
+    const today = new Date().toDateString();
+    const saved = localStorage.getItem('ilyasuu_nutrient_log');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.date === today) {
+          setMeals(parsed.data);
+        } else {
+          // Reset for new day
+          setMeals([false, false, false, false]);
+          localStorage.removeItem('ilyasuu_nutrient_log');
+        }
+      } catch (e) {
+        setMeals([false, false, false, false]);
+      }
+    }
+  }, []);
+
+  const toggleMeal = (index: number, e: React.MouseEvent<HTMLButtonElement>) => {
+    const newMeals = [...meals];
+    const isComplete = !newMeals[index];
+    newMeals[index] = isComplete;
+    setMeals(newMeals);
+    
+    // Save to LocalStorage
+    localStorage.setItem('ilyasuu_nutrient_log', JSON.stringify({
+      date: new Date().toDateString(),
+      data: newMeals
+    }));
+
+    if (isComplete) {
+      onAddXP(10);
+      
+      // Floating Text Logic
+      const btn = e.currentTarget;
+      const rect = btn.getBoundingClientRect();
+      // Calculate a rough relative percentage or fixed offset based on the button's position in the container
+      // For simplicity in this grid, we use a key based ID and render it absolutely.
+      // Actually, rendering it inside the button container is cleaner for positioning.
+      // But button has overflow hidden usually? No, let's use a state array.
+      
+      const id = Date.now();
+      // Store relative index for positioning
+      setAnimations(prev => [...prev, { id, left: index, val: 10 }]);
+      setTimeout(() => setAnimations(prev => prev.filter(a => a.id !== id)), 1000);
+    } else {
+      onAddXP(-10); // Undo XP
+    }
+  };
+
+  const completedMealsCount = meals.filter(Boolean).length;
+  const fuelPercentage = Math.round((completedMealsCount / 4) * 100);
+
+  // --- EXISTING LOGIC ---
   const formatFocusTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -59,14 +122,14 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
 
   const xpForNextLevel = 500;
   const currentLevelProgress = (stats.xp % xpForNextLevel) / xpForNextLevel * 100;
-  const xpRemaining = xpForNextLevel - (stats.xp % xpForNextLevel);
 
-  const todayIndex = (new Date().getDay() + 6) % 7; 
-  const daysPassed = todayIndex + 1;
-  const daysCompleted = gymSessions.slice(0, daysPassed).filter(s => s.completed).length;
-  const adherence = daysPassed > 0 ? Math.round((daysCompleted / daysPassed) * 100) : 100;
+  const totalPlanned = gymSessions.length; 
+  const totalCompleted = gymSessions.filter(s => s.completed).length;
+  const adherence = Math.round((totalCompleted / totalPlanned) * 100);
+  const isPerfectWeek = adherence === 100;
 
   const getAdherenceColor = (pct: number) => {
+    if (pct === 100) return 'text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]';
     if (pct >= 80) return 'text-green-400';
     if (pct >= 50) return 'text-orange-400';
     return 'text-red-500';
@@ -91,7 +154,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
 
   return (
     <div className="space-y-4 animate-fade-in pb-20 md:pb-0">
-      {/* Hero Section - Compacted Padding */}
+      {/* Hero Section */}
       <div className="relative glass-panel rounded-3xl p-6 overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-purple-900/20 to-transparent pointer-events-none" />
         <div className="relative z-10">
@@ -154,10 +217,70 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
         </div>
       </div>
 
+      {/* NUTRIENT SEQUENCER WIDGET */}
+      <div className="glass-panel p-4 rounded-xl flex items-center gap-4 relative overflow-hidden border-white/10">
+         <div className="flex items-center gap-2 mr-2">
+            <Zap className="text-cyan-400" size={16} />
+            <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest hidden sm:inline">Nutrient Sequencer</span>
+         </div>
+         
+         <div className="flex-1 flex gap-2 sm:gap-4 items-center">
+            {meals.map((isComplete, idx) => (
+               <button
+                  key={idx}
+                  onClick={(e) => toggleMeal(idx, e)}
+                  className={`
+                     relative flex-1 h-10 sm:h-12 rounded transition-all duration-300 flex items-center justify-center overflow-hidden group
+                     ${isComplete 
+                        ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.6)] border border-cyan-400 text-black' 
+                        : 'bg-black/20 border border-dashed border-white/20 text-gray-600 hover:border-cyan-500/50 hover:text-cyan-500/50'}
+                  `}
+               >
+                  <span className="font-mono text-[9px] sm:text-[10px] font-bold tracking-widest relative z-10">
+                     {mealLabels[idx]}
+                  </span>
+                  
+                  {/* Fill Animation */}
+                  {isComplete && <div className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none" />}
+                  
+                  {/* Floating +10 XP Toast - Rendered relative to button to simplify positioning */}
+                  {animations.filter(a => a.left === idx).map(anim => (
+                     <div 
+                        key={anim.id}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs font-bold font-orbitron text-white pointer-events-none animate-float-up z-20"
+                     >
+                        +{anim.val} XP
+                     </div>
+                  ))}
+               </button>
+            ))}
+         </div>
+
+         <div className="text-right min-w-[70px]">
+            <span className="text-[10px] font-mono text-cyan-500 font-bold block">FUEL: {fuelPercentage}%</span>
+            <div className="w-full h-1 bg-gray-800 rounded-full mt-1 overflow-hidden">
+               <div 
+                  className="h-full bg-cyan-500 transition-all duration-500 ease-out"
+                  style={{ width: `${fuelPercentage}%` }}
+               />
+            </div>
+         </div>
+         
+         <style>{`
+            @keyframes float-up {
+               0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+               100% { transform: translate(-50%, -250%) scale(1.5); opacity: 0; }
+            }
+            .animate-float-up {
+               animation: float-up 0.8s ease-out forwards;
+            }
+         `}</style>
+      </div>
+
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         
-        {/* COL 1: Upcoming Tasks - Height Reduced to 350px */}
+        {/* COL 1: Upcoming Tasks */}
         <div className="glass-panel rounded-3xl p-5 border-white/10 flex flex-col h-[350px] min-w-0">
           <div className="flex justify-between items-center mb-4 flex-shrink-0">
             <h3 className="font-orbitron text-lg text-white flex items-center gap-2">
@@ -193,7 +316,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
           </div>
         </div>
 
-        {/* COL 2: Tactical Forecast - Height Reduced to 350px */}
+        {/* COL 2: Tactical Forecast */}
         <div className="glass-panel rounded-3xl p-5 border-white/10 flex flex-col h-[350px] relative overflow-hidden min-w-0">
           <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
              <Calendar size={100} />
@@ -209,7 +332,10 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
           <div className="flex-1 overflow-y-auto no-scrollbar space-y-3 relative z-10">
              {upcomingSchedule.length > 0 ? (
                 <>
-                  <div className="p-3 rounded-xl bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-500/30 flex items-center gap-3 relative overflow-hidden group min-w-0">
+                  <div 
+                    onClick={() => onNavigateToSchedule(upcomingSchedule[0].date || '', upcomingSchedule[0].id)}
+                    className="p-3 rounded-xl bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-500/30 flex items-center gap-3 relative overflow-hidden group min-w-0 cursor-pointer hover:border-blue-400 transition-colors"
+                  >
                      <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                      <div className="flex flex-col items-center justify-center min-w-[50px] border-r border-white/10 pr-3">
                         <span className="text-[10px] font-mono text-blue-300">NEXT</span>
@@ -233,7 +359,11 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
                            {groupedSchedule[key].map(block => {
                               if (key === 'TODAY' && block.id === upcomingSchedule[0].id) return null;
                               return (
-                                 <div key={block.id} className="flex gap-2 items-center p-1.5 rounded hover:bg-white/5 transition-colors group">
+                                 <div 
+                                    key={block.id} 
+                                    onClick={() => onNavigateToSchedule(block.date || '', block.id)}
+                                    className="flex gap-2 items-center p-1.5 rounded hover:bg-white/5 transition-colors group cursor-pointer"
+                                 >
                                     <span className="font-mono text-[10px] text-gray-400 group-hover:text-white transition-colors w-10 flex-shrink-0">{block.startTime}</span>
                                     <div className={`w-0.5 h-6 rounded-full flex-shrink-0 ${block.type === 'GYM' ? 'bg-red-500' : block.type === 'WORK' ? 'bg-purple-500' : 'bg-yellow-500'}`} />
                                     <div className="flex-1 min-w-0">
@@ -255,15 +385,21 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
           </div>
         </div>
 
-        {/* COL 3: Weekly Progress - Height Reduced to 350px */}
-        <div className="glass-panel rounded-3xl p-5 border-white/10 flex flex-col h-[350px] min-w-0">
-          <h3 className="font-orbitron text-lg text-white mb-4 flex items-center gap-2">
+        {/* COL 3: Body Mechanics */}
+        <div className={`glass-panel rounded-3xl p-5 border-white/10 flex flex-col h-[350px] min-w-0 relative overflow-hidden transition-all duration-1000 ${isPerfectWeek ? 'border-yellow-500/40 shadow-[0_0_50px_rgba(234,179,8,0.15)]' : ''}`}>
+          
+          {/* 100% Glow Effect */}
+          {isPerfectWeek && (
+             <div className="absolute inset-0 bg-yellow-500/5 animate-pulse pointer-events-none" />
+          )}
+
+          <h3 className="font-orbitron text-lg text-white mb-4 flex items-center gap-2 relative z-10">
              Body Mechanics
           </h3>
-          <div className="flex-1 space-y-2 overflow-y-auto no-scrollbar">
+          <div className="flex-1 space-y-2 overflow-y-auto no-scrollbar relative z-10">
             {gymSessions.map((session, idx) => {
+              const todayIndex = (new Date().getDay() + 6) % 7; 
               const isToday = idx === todayIndex;
-              const isPast = idx < todayIndex;
               const isRest = session.focus === 'Rest';
               
               let barColor = 'bg-white/5';
@@ -277,8 +413,6 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
                     barColor = 'bg-purple-500';
                     glow = 'shadow-[0_0_8px_#A855F7]';
                  }
-              } else if (isPast) {
-                 barColor = 'bg-red-900/40'; 
               }
 
               return (
@@ -293,7 +427,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
                         <div 
                            key={i} 
                            className={`flex-1 rounded-sm transition-all duration-500 ${barColor} ${glow}`}
-                           style={{ opacity: session.completed || isPast ? 1 : 0.3 }}
+                           style={{ opacity: session.completed ? 1 : 0.3 }}
                         />
                      ))}
                   </div>
@@ -306,7 +440,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
             })}
           </div>
           
-          <div className="mt-3 p-3 bg-black/40 rounded-xl border border-white/10 text-center flex justify-between items-center">
+          <div className="mt-3 p-3 bg-black/40 rounded-xl border border-white/10 text-center flex justify-between items-center relative z-10">
              <span className="text-[9px] text-gray-500 font-mono uppercase">System Diagnostic</span>
              <p className={`font-orbitron text-xs font-bold ${getAdherenceColor(adherence)}`}>
                SYNC: {adherence}%

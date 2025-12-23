@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Dumbbell, TrendingUp, Scale, Camera, X, Play, Zap, ChevronRight, RefreshCw, Save, Edit3, Image as ImageIcon, Activity, Upload, Monitor, Hash, Quote } from 'lucide-react';
+import { Dumbbell, TrendingUp, Scale, Camera, X, Play, Zap, ChevronRight, RefreshCw, Save, Edit3, Image as ImageIcon, Activity, Upload, Monitor, Hash, Quote, AlertTriangle } from 'lucide-react';
 import { GymSession, Biometrics, PersonalRecord, WorkoutLog, WorkoutHistoryItem, PhysiqueEntry } from '../types';
-import { WORKOUT_PLAN, WARFARE_QUOTES, DEFAULT_ANCHOR_URL } from '../constants';
+import { WORKOUT_PLAN, WARFARE_QUOTES, DEFAULT_ANCHOR_URL, WEEKLY_WORKOUTS } from '../constants';
 
 interface GymProps {
   sessions: GymSession[];
@@ -27,8 +27,8 @@ const Gym: React.FC<GymProps> = ({
   const [sessionData, setSessionData] = useState<any[]>([]);
   const [totalTonnage, setTotalTonnage] = useState(0);
 
-  // PR Edit State
-  const [editingPR, setEditingPR] = useState<{name: string, weight: string} | null>(null);
+  // Warning State for Overheat
+  const [showOverheatWarning, setShowOverheatWarning] = useState<number | null>(null);
 
   // Bio Archive Modal State
   const [isBioArchiveOpen, setIsBioArchiveOpen] = useState(false);
@@ -42,15 +42,20 @@ const Gym: React.FC<GymProps> = ({
   const [anchorInput, setAnchorInput] = useState('');
   const [currentQuote, setCurrentQuote] = useState(WARFARE_QUOTES[0]);
 
+  // Coolant Flush Animation State
+  const [isCooling, setIsCooling] = useState(false);
+
+  // System Restore Animation State
+  const [restoreAnim, setRestoreAnim] = useState({ PUSH: false, PULL: false, LEGS: false });
+  const prevFatigueRef = useRef({ PUSH: 0, PULL: 0, LEGS: 0 });
+
   // Load Anchor & Quote Logic
   useEffect(() => {
     const savedAnchor = localStorage.getItem('ilyasuu_visual_anchor');
     if (savedAnchor) setAnchorUrl(savedAnchor);
 
-    // Random quote on mount
     setCurrentQuote(WARFARE_QUOTES[Math.floor(Math.random() * WARFARE_QUOTES.length)]);
     
-    // Rotate quote every 60s
     const interval = setInterval(() => {
       setCurrentQuote(WARFARE_QUOTES[Math.floor(Math.random() * WARFARE_QUOTES.length)]);
     }, 60000);
@@ -74,8 +79,16 @@ const Gym: React.FC<GymProps> = ({
     setCurrentQuote(nextQuote);
   };
 
-  // Calculate Unique Training Days
-  const uniqueDeployments = new Set(workoutHistory.map(item => item.date.split('T')[0])).size;
+  // --- REACTIVE COUNTING LOGIC ---
+  // Total Deployments: Simple length of history array
+  const totalDeployments = workoutHistory.length;
+
+  // Monthly Ops: Filter for current month/year
+  const monthlyOps = workoutHistory.filter(item => {
+    const d = new Date(item.date);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
 
   // Initialize Session Data when modal opens
   useEffect(() => {
@@ -83,7 +96,6 @@ const Gym: React.FC<GymProps> = ({
       const sessionName = sessions[activeSessionIndex].focus;
       const exercises = WORKOUT_PLAN[sessionName] || WORKOUT_PLAN['Rest'] || [];
       
-      // Initialize logging structure
       setSessionData(exercises.map(ex => ({
         ...ex,
         logWeight: 0,
@@ -93,7 +105,6 @@ const Gym: React.FC<GymProps> = ({
     }
   }, [activeSessionIndex, sessions]);
 
-  // Calculate Tonnage Live
   useEffect(() => {
     const vol = sessionData.reduce((acc, curr) => {
       if (curr.done) {
@@ -121,7 +132,12 @@ const Gym: React.FC<GymProps> = ({
     
     const sessionName = sessions[activeSessionIndex].focus;
     
-    // Construct Log
+    // Check if Cardio for Coolant Flush Effect
+    if (sessionName.toLowerCase().includes('cardio') || sessionName.toLowerCase().includes('recovery')) {
+      setIsCooling(true);
+      setTimeout(() => setIsCooling(false), 3000); // 3s Animation
+    }
+
     const log: WorkoutLog = {
       date: new Date().toDateString(),
       sessionName: sessionName,
@@ -135,20 +151,6 @@ const Gym: React.FC<GymProps> = ({
 
     onWorkoutComplete(activeSessionIndex, log);
     setActiveSessionIndex(null);
-  };
-
-  const openPREdit = (name: string, currentWeight: number) => {
-    setEditingPR({ name, weight: currentWeight.toString() });
-  };
-
-  const savePREdit = () => {
-    if (editingPR) {
-      const weight = parseFloat(editingPR.weight);
-      if (!isNaN(weight)) {
-        onUpdatePR(editingPR.name, weight);
-      }
-      setEditingPR(null);
-    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -178,7 +180,6 @@ const Gym: React.FC<GymProps> = ({
     const max = Math.max(...data);
     const range = max - min || 1;
     
-    // Normalize points to 0-100% height, width distributed evenly
     const points = data.map((val, i) => {
       const x = (i / (data.length - 1)) * 100;
       const y = 100 - ((val - min) / range) * 100;
@@ -195,7 +196,6 @@ const Gym: React.FC<GymProps> = ({
           strokeLinecap="round" 
           strokeLinejoin="round" 
         />
-        {/* Dots */}
         {data.map((val, i) => {
            const x = (i / (data.length - 1)) * 100;
            const y = 100 - ((val - min) / range) * 100;
@@ -207,70 +207,93 @@ const Gym: React.FC<GymProps> = ({
     );
   };
 
-  // --- CUMULATIVE FATIGUE LOGIC (WEEKLY RESET AWARE) ---
-  const calculateFatigue = (group: string) => {
-    const now = new Date();
-    
-    // Get start of current week (Monday)
-    const day = now.getDay();
-    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-    const monday = new Date(now.setDate(diff));
-    monday.setHours(0,0,0,0);
-    const startOfWeek = monday.getTime();
-    
-    const nowTime = new Date().getTime();
+  // --- CONTINUOUS FATIGUE LOGIC ---
+  const calculateFatigue = (system: 'PUSH' | 'PULL' | 'LEGS') => {
+    const now = new Date().getTime();
     let fatigue = 0;
 
-    // 1. Get all relevant sessions from history THIS WEEK
-    const relevantLogs = workoutHistory.filter(h => 
-      h.sessionName.toUpperCase().includes(group) && 
-      new Date(h.date).getTime() >= startOfWeek
-    );
-
-    // 2. Calculate fatigue impact of each session
-    relevantLogs.forEach(log => {
-      const logTime = new Date(log.date).getTime();
-      const hoursPassed = (nowTime - logTime) / (1000 * 60 * 60);
-      
-      // FATIGUE MODEL:
-      // +50 Fatigue per session
-      // Decays by 25 every 24 hours (approx 1.04 per hour)
-      const initialFatigue = 50;
-      const decayRatePerHour = 25 / 24; 
-      
-      const remainingFatigue = initialFatigue - (hoursPassed * decayRatePerHour);
-
-      if (remainingFatigue > 0) {
-        fatigue += remainingFatigue;
-      }
+    // Filter relevant logs from ALL history (Continuous timeframe)
+    const relevantLogs = workoutHistory.filter(h => {
+       const sName = h.sessionName.toUpperCase();
+       if (system === 'PUSH') return sName.includes('UPPER'); // Upper involves Push
+       if (system === 'PULL') return sName.includes('UPPER'); // Upper involves Pull
+       if (system === 'LEGS') return sName.includes('LOWER');
+       return false;
     });
 
-    // Cap visual fatigue at 100 (though logic allows higher for stacking)
-    return Math.min(Math.round(fatigue), 100);
+    // Sort by date descending (newest first)
+    relevantLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Only consider the most recent significant workout for fatigue spike
+    // But verify if multiple occurred within 48h window
+    if (relevantLogs.length > 0) {
+        const lastLog = relevantLogs[0];
+        const logTime = new Date(lastLog.date).getTime();
+        const hoursSince = (now - logTime) / (1000 * 60 * 60);
+
+        if (hoursSince < 24) {
+           fatigue = 90; // Critical
+        } else if (hoursSince < 48) {
+           fatigue = 50; // Stabilizing
+        } else {
+           fatigue = 0; // Fresh
+        }
+    }
+
+    return fatigue;
+  };
+
+  // --- VOLUME LOGIC (WEEKLY RING) ---
+  const calculateWeeklyVolume = (system: 'PUSH' | 'PULL' | 'LEGS') => {
+      const now = new Date();
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(now.setDate(diff));
+      monday.setHours(0,0,0,0);
+      const startOfWeek = monday.getTime();
+      const endOfWeek = startOfWeek + (7 * 24 * 60 * 60 * 1000);
+
+      // Count sessions for this system this week
+      const count = workoutHistory.filter(h => {
+        const logTime = new Date(h.date).getTime();
+        const sName = h.sessionName.toUpperCase();
+        if (logTime < startOfWeek || logTime >= endOfWeek) return false;
+
+        if (system === 'PUSH') return sName.includes('UPPER');
+        if (system === 'PULL') return sName.includes('UPPER');
+        if (system === 'LEGS') return sName.includes('LOWER');
+        return false;
+      }).length;
+
+      // Target: 2 sessions per week per system
+      return Math.min((count / 2) * 100, 100);
   };
 
   const getSystemStatus = (fatigue: number) => {
     if (fatigue >= 75) {
       return { 
         color: 'text-red-500', 
-        fill: 'rgba(239, 68, 68, 0.6)', 
-        glow: 'drop-shadow-[0_0_15px_rgba(220,38,38,0.8)]',
-        label: 'CRITICAL'
+        fill: 'rgba(239, 68, 68, 0.8)', 
+        glow: 'drop-shadow-[0_0_10px_rgba(220,38,38,0.9)]',
+        label: 'CRITICAL',
+        animation: 'animate-glitch' // New glitch class
       };
     }
     if (fatigue >= 26) {
       return { 
         color: 'text-orange-500', 
-        fill: 'rgba(249, 115, 22, 0.4)', 
-        glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]',
-        label: 'RECOVERING'
+        fill: 'rgba(249, 115, 22, 0.6)', 
+        glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.6)]',
+        label: 'RECOVERING',
+        animation: ''
       };
     }
     return { 
       color: 'text-cyan-500', 
-      fill: 'rgba(6, 182, 212, 0.2)', 
-      glow: '',
-      label: 'FRESH'
+      fill: 'rgba(6, 182, 212, 0.3)', 
+      glow: 'drop-shadow-[0_0_5px_rgba(6,182,212,0.4)]',
+      label: 'OPTIMAL',
+      animation: ''
     };
   };
 
@@ -278,14 +301,88 @@ const Gym: React.FC<GymProps> = ({
   const pullFatigue = calculateFatigue('PULL');
   const legsFatigue = calculateFatigue('LEGS');
 
+  // Trigger System Restore Animation if reverting from Critical
+  useEffect(() => {
+    const systems = ['PUSH', 'PULL', 'LEGS'] as const;
+    let update = false;
+    const newRestores = { ...restoreAnim };
+
+    systems.forEach(sys => {
+        const curr = sys === 'PUSH' ? pushFatigue : sys === 'PULL' ? pullFatigue : legsFatigue;
+        const prev = prevFatigueRef.current[sys];
+        
+        // Trigger if we go from CRITICAL (>=75) to OK (<75)
+        if (prev >= 75 && curr < 75) {
+            newRestores[sys] = true;
+            update = true;
+        }
+        prevFatigueRef.current[sys] = curr;
+    });
+
+    if (update) {
+        setRestoreAnim(newRestores);
+        setTimeout(() => setRestoreAnim({ PUSH: false, PULL: false, LEGS: false }), 800);
+    }
+  }, [pushFatigue, pullFatigue, legsFatigue]);
+
+  const pushVolume = calculateWeeklyVolume('PUSH');
+  const pullVolume = calculateWeeklyVolume('PULL');
+  const legsVolume = calculateWeeklyVolume('LEGS');
+
   const pushStatus = getSystemStatus(pushFatigue);
   const pullStatus = getSystemStatus(pullFatigue);
   const legsStatus = getSystemStatus(legsFatigue);
 
+  // Overheat Check
+  const handleSessionClick = (index: number) => {
+    const sessionName = sessions[index].focus.toUpperCase();
+    let isCritical = false;
+
+    if (sessionName.includes('UPPER')) {
+        if (pushFatigue >= 75 || pullFatigue >= 75) isCritical = true;
+    } else if (sessionName.includes('LOWER')) {
+        if (legsFatigue >= 75) isCritical = true;
+    }
+
+    if (isCritical) {
+        setShowOverheatWarning(index);
+    } else {
+        setActiveSessionIndex(index);
+    }
+  };
+
   return (
     <>
+      <style>{`
+         @keyframes glitch {
+            0% { transform: translate(0) }
+            20% { transform: translate(-2px, 2px) }
+            40% { transform: translate(-2px, -2px) }
+            60% { transform: translate(2px, 2px) }
+            80% { transform: translate(2px, -2px) }
+            100% { transform: translate(0) }
+         }
+         .animate-glitch {
+            animation: glitch 0.3s cubic-bezier(.25, .46, .45, .94) both infinite;
+         }
+         @keyframes system-restore {
+            0% { filter: brightness(1); opacity: 1; }
+            20% { filter: brightness(10) drop-shadow(0 0 20px cyan); opacity: 1; }
+            100% { filter: brightness(1); opacity: 1; }
+         }
+         .animate-restore {
+            animation: system-restore 0.8s ease-out forwards;
+         }
+         @keyframes flow {
+            0% { stroke-dashoffset: 1000; }
+            100% { stroke-dashoffset: 0; }
+         }
+      `}</style>
+      
       <div className="h-full overflow-y-auto no-scrollbar pb-10 pr-2">
         <div className="space-y-6">
+           
+           {/* ROW 0: PROGRAM & BIO (Existing) */}
            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
              {/* Current Split */}
              <div className="md:col-span-2 glass-panel p-6 rounded-xl relative overflow-hidden">
@@ -298,7 +395,7 @@ const Gym: React.FC<GymProps> = ({
                   {sessions.map((day, i) => (
                     <div 
                       key={i} 
-                      onClick={() => setActiveSessionIndex(i)}
+                      onClick={() => !day.completed && handleSessionClick(i)}
                       className={`
                         p-3 rounded-lg border flex flex-col items-center justify-center gap-2 cursor-pointer transition-all hover:scale-105 select-none relative overflow-hidden group
                         ${day.completed 
@@ -395,178 +492,200 @@ const Gym: React.FC<GymProps> = ({
              </div>
            </div>
 
-           {/* Secondary Grid: PRs & Integrity */}
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             
-             {/* PR Board */}
-             <div className="glass-panel p-6 rounded-xl">
-                <h3 className="font-orbitron text-xl text-white mb-4 flex items-center gap-2">
-                    <TrendingUp className="text-yellow-500" /> Personal Records
-                </h3>
-                <div className="space-y-3">
-                  {personalRecords.map((pr, i) => (
-                    <div 
-                      key={i} 
-                      onClick={() => openPREdit(pr.name, pr.weight)}
-                      className="bg-black/40 p-4 rounded-lg border border-white/5 hover:border-yellow-500/50 transition-colors flex justify-between items-center group cursor-pointer hover:bg-white/5 relative overflow-hidden"
+           {/* ROW 1: VISUALS (System Integrity + Visual Feed) - Equal Height */}
+           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-96">
+              
+              {/* LEFT: System Integrity (Heatmap) */}
+              <div className="glass-panel p-6 rounded-xl relative overflow-hidden flex flex-col justify-center">
+                  {/* COOLANT FLUSH ANIMATION OVERLAY */}
+                  {isCooling && (
+                     <div className="absolute inset-0 z-30 pointer-events-none bg-blue-500/20 backdrop-blur-[2px] animate-pulse flex items-center justify-center">
+                        <div className="text-blue-400 font-orbitron font-bold text-2xl animate-bounce">COOLANT FLUSH...</div>
+                     </div>
+                  )}
+
+                  <h3 className="font-orbitron text-xl text-white mb-4 flex items-center gap-2 relative z-10 self-start">
+                      <Activity size={20} className="text-red-500" /> System Integrity
+                  </h3>
+                  
+                  <div className="flex items-center justify-center gap-12 relative z-10 w-full">
+                      {/* SVG Body Map */}
+                      <div className="relative transform scale-125">
+                        <svg width="120" height="200" viewBox="0 0 100 200" className="drop-shadow-lg">
+                          {/* Upper Front (Push) */}
+                          <path 
+                            d="M20,10 L80,10 L90,40 L80,90 L20,90 L10,40 Z" 
+                            fill={pushStatus.fill} 
+                            stroke="currentColor" 
+                            strokeWidth="1" 
+                            className={`${pushStatus.color} ${pushStatus.glow} transition-all duration-700 ${restoreAnim.PUSH ? 'animate-restore text-cyan-200' : pushStatus.animation}`}
+                          />
+                          
+                          {/* Head */}
+                          <circle cx="50" cy="15" r="10" fill="#1f2937" />
+                          
+                          {/* Torso Top (Push) */}
+                          <rect x="25" y="30" width="50" height="30" fill={pushStatus.fill} stroke="gray" strokeWidth="0.5" className={`${pushStatus.glow} transition-all duration-700 ${restoreAnim.PUSH ? 'animate-restore fill-cyan-500/50' : pushStatus.animation}`} />
+                          
+                          {/* Torso Mid (Pull) */}
+                          <rect x="25" y="60" width="50" height="30" fill={pullStatus.fill} stroke="gray" strokeWidth="0.5" className={`${pullStatus.glow} transition-all duration-700 ${restoreAnim.PULL ? 'animate-restore fill-cyan-500/50' : pullStatus.animation}`} />
+                          
+                          {/* Legs */}
+                          <rect x="25" y="90" width="22" height="80" fill={legsStatus.fill} stroke="gray" strokeWidth="0.5" className={`${legsStatus.glow} transition-all duration-700 ${restoreAnim.LEGS ? 'animate-restore fill-cyan-500/50' : legsStatus.animation}`} />
+                          <rect x="53" y="90" width="22" height="80" fill={legsStatus.fill} stroke="gray" strokeWidth="0.5" className={`${legsStatus.glow} transition-all duration-700 ${restoreAnim.LEGS ? 'animate-restore fill-cyan-500/50' : legsStatus.animation}`} />
+                        </svg>
+                        
+                        {/* Coolant Particles (Blue dots) */}
+                        {isCooling && (
+                           <div className="absolute inset-0 overflow-hidden">
+                              {[...Array(10)].map((_,i) => (
+                                 <div key={i} className="absolute w-1 h-1 bg-blue-400 rounded-full animate-ping" style={{ top: Math.random()*100+'%', left: Math.random()*100+'%', animationDelay: Math.random()+'s' }} />
+                              ))}
+                           </div>
+                        )}
+                      </div>
+
+                      {/* HUD */}
+                      <div className="flex flex-col gap-6">
+                         {/* PUSH SYSTEM */}
+                         <div className="group cursor-help relative">
+                            {/* Volume Ring */}
+                            <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-8 bg-gray-800 rounded-full overflow-hidden">
+                               <div className="w-full bg-white transition-all duration-1000" style={{ height: `${pushVolume}%` }} />
+                            </div>
+
+                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Push Systems</p>
+                            <p className={`text-lg font-bold font-orbitron pl-2 ${pushStatus.color}`}>{pushStatus.label}</p>
+                            <p className="text-xs text-gray-600 font-mono pl-2 group-hover:text-white transition-colors">VOLUME: {Math.round(pushVolume)}%</p>
+                         </div>
+                         
+                         {/* PULL SYSTEM */}
+                         <div className="group cursor-help relative">
+                            <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-8 bg-gray-800 rounded-full overflow-hidden">
+                               <div className="w-full bg-white transition-all duration-1000" style={{ height: `${pullVolume}%` }} />
+                            </div>
+
+                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Pull Systems</p>
+                            <p className={`text-lg font-bold font-orbitron pl-2 ${pullStatus.color}`}>{pullStatus.label}</p>
+                            <p className="text-xs text-gray-600 font-mono pl-2 group-hover:text-white transition-colors">VOLUME: {Math.round(pullVolume)}%</p>
+                         </div>
+
+                         {/* LEGS SYSTEM */}
+                         <div className="group cursor-help relative">
+                            <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-8 bg-gray-800 rounded-full overflow-hidden">
+                               <div className="w-full bg-white transition-all duration-1000" style={{ height: `${legsVolume}%` }} />
+                            </div>
+
+                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Legs Systems</p>
+                            <p className={`text-lg font-bold font-orbitron pl-2 ${legsStatus.color}`}>{legsStatus.label}</p>
+                            <p className="text-xs text-gray-600 font-mono pl-2 group-hover:text-white transition-colors">VOLUME: {Math.round(legsVolume)}%</p>
+                         </div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* RIGHT: Visual Feed (Extracted) */}
+              <div className="glass-panel p-0 rounded-xl relative overflow-hidden border border-white/10 group bg-black shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]">
+                 {isEditingAnchor ? (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-30 p-4">
+                       <div className="w-full max-w-xs space-y-2">
+                          <input 
+                            type="text" 
+                            value={anchorInput}
+                            onChange={(e) => setAnchorInput(e.target.value)}
+                            placeholder="Paste GIF/MP4 Link"
+                            className="w-full bg-gray-900 border border-purple-500 text-white p-2 text-xs font-mono focus:outline-none"
+                            autoFocus
+                          />
+                          <button onClick={handleUpdateAnchor} className="w-full bg-purple-600 text-white text-xs font-bold py-1 hover:bg-purple-500">ENGAGE</button>
+                       </div>
+                    </div>
+                 ) : (
+                    <button 
+                       onClick={() => { setAnchorInput(anchorUrl); setIsEditingAnchor(true); }}
+                       className="absolute top-2 right-2 z-30 text-xs text-white/50 hover:text-white bg-black/50 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                     >
-                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Edit3 size={12} className="text-gray-500" />
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-xs uppercase font-mono">{pr.name}</p>
-                        <p className="text-2xl font-bold font-rajdhani text-white group-hover:text-yellow-400 transition-colors flex items-end gap-1">
-                            {pr.weight} <span className="text-sm font-normal text-gray-500 mb-1">kg</span>
-                        </p>
-                      </div>
-                      <span className="text-xs text-gray-600 bg-white/5 px-2 py-1 rounded">{pr.date}</span>
-                    </div>
-                  ))}
-                </div>
-             </div>
+                       RECONFIGURE
+                    </button>
+                 )}
+                 
+                 {/* Media Renderer */}
+                 <div className="absolute inset-0 z-0">
+                    {anchorUrl.match(/\.(mp4|webm)$/i) ? (
+                       <video src={anchorUrl} autoPlay loop muted playsInline className="w-full h-full object-cover opacity-80" />
+                    ) : (
+                       <img src={anchorUrl} alt="Visual Anchor" className="w-full h-full object-cover opacity-80" />
+                    )}
+                 </div>
 
-             {/* Structural Integrity (Heatmap) */}
-             <div className="glass-panel p-6 rounded-xl relative overflow-hidden">
-                <h3 className="font-orbitron text-xl text-white mb-4 flex items-center gap-2 relative z-10">
-                    <Activity size={20} className="text-red-500" /> System Integrity
-                </h3>
-                <div className="flex items-start justify-center gap-8 relative z-10">
-                    {/* SVG Body Map */}
-                    <svg width="120" height="200" viewBox="0 0 100 200" className="drop-shadow-lg">
-                       {/* Upper Front (Push) */}
-                       <path 
-                         d="M20,10 L80,10 L90,40 L80,90 L20,90 L10,40 Z" 
-                         fill={pushStatus.fill} 
-                         stroke="currentColor" 
-                         strokeWidth="1" 
-                         className={`${pushStatus.color} ${pushStatus.glow} transition-all duration-700`}
-                       />
-                       
-                       {/* Head */}
-                       <circle cx="50" cy="15" r="10" fill="#1f2937" />
-                       
-                       {/* Torso Top (Push) */}
-                       <rect x="25" y="30" width="50" height="30" fill={pushStatus.fill} stroke="gray" strokeWidth="0.5" className={`${pushStatus.glow} transition-all duration-700`} />
-                       
-                       {/* Torso Mid (Pull) */}
-                       <rect x="25" y="60" width="50" height="30" fill={pullStatus.fill} stroke="gray" strokeWidth="0.5" className={`${pullStatus.glow} transition-all duration-700`} />
-                       
-                       {/* Legs */}
-                       <rect x="25" y="90" width="22" height="80" fill={legsStatus.fill} stroke="gray" strokeWidth="0.5" className={`${legsStatus.glow} transition-all duration-700`} />
-                       <rect x="53" y="90" width="22" height="80" fill={legsStatus.fill} stroke="gray" strokeWidth="0.5" className={`${legsStatus.glow} transition-all duration-700`} />
-                    </svg>
-
-                    {/* HUD */}
-                    <div className="flex-1 space-y-4 pt-4">
-                       <div className="group cursor-help">
-                          <p className="text-[10px] text-gray-500 uppercase font-mono">Push Systems</p>
-                          <p className={`text-lg font-bold font-orbitron ${pushStatus.color}`}>{pushStatus.label}</p>
-                          <p className="text-xs text-gray-600 font-mono group-hover:text-white transition-colors">FATIGUE: {pushFatigue}%</p>
-                       </div>
-                       <div className="group cursor-help">
-                          <p className="text-[10px] text-gray-500 uppercase font-mono">Pull Systems</p>
-                          <p className={`text-lg font-bold font-orbitron ${pullStatus.color}`}>{pullStatus.label}</p>
-                          <p className="text-xs text-gray-600 font-mono group-hover:text-white transition-colors">FATIGUE: {pullFatigue}%</p>
-                       </div>
-                       <div className="group cursor-help">
-                          <p className="text-[10px] text-gray-500 uppercase font-mono">Legs Systems</p>
-                          <p className={`text-lg font-bold font-orbitron ${legsStatus.color}`}>{legsStatus.label}</p>
-                          <p className="text-xs text-gray-600 font-mono group-hover:text-white transition-colors">FATIGUE: {legsFatigue}%</p>
-                       </div>
+                 {/* Scanline Overlay (CRT Effect) */}
+                 <div className="absolute inset-0 pointer-events-none z-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
+                 <div className="absolute inset-0 pointer-events-none z-20 shadow-[inset_0_0_50px_rgba(0,0,0,0.7)]" />
+                 
+                 {/* Feed Label */}
+                 <div className="absolute bottom-4 right-4 bg-black/60 px-2 py-1 rounded border border-white/10 z-20">
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-mono text-white tracking-widest">LIVE FEED</span>
                     </div>
-                </div>
-             </div>
+                 </div>
+              </div>
            </div>
 
-           {/* PSYCHOLOGICAL WARFARE MODULE */}
-           <div className="glass-panel rounded-xl overflow-hidden relative border border-purple-900/40">
-              <div className="absolute inset-0 bg-black/40 pointer-events-none" />
-              <div className="p-3 bg-black/60 border-b border-purple-900/50 flex justify-between items-center relative z-10">
-                  <h3 className="font-orbitron font-bold text-gray-300 flex items-center gap-2 tracking-wider text-sm">
-                     <Monitor size={14} className="text-purple-500" /> PSYCHOLOGICAL WARFARE
-                  </h3>
-                  <div className="flex gap-1">
-                     <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                     <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse delay-75" />
-                     <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse delay-150" />
-                  </div>
-              </div>
+           {/* ROW 2: DATA (Deployments + Neural) */}
+           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 relative z-10">
-                  {/* WIDGET A: TOTAL DEPLOYMENTS */}
-                  <div className="p-8 flex flex-col items-center justify-center border-b lg:border-b-0 lg:border-r border-white/5 bg-gradient-to-br from-black/20 to-purple-900/10">
-                     <p className="text-xs text-purple-400 font-mono tracking-[0.2em] mb-2 uppercase">Total Deployments</p>
-                     <div className="relative">
-                        <h2 className="text-6xl font-orbitron font-bold text-white relative z-10 glitch-text" data-text={uniqueDeployments}>
-                          {uniqueDeployments.toString().padStart(3, '0')}
+               {/* LEFT: Deployments */}
+               <div className="glass-panel p-8 rounded-xl flex flex-col items-center justify-center relative overflow-hidden bg-gradient-to-br from-black/40 to-purple-900/10 border border-purple-500/20">
+                   <div className="absolute top-0 left-0 p-4 opacity-50">
+                        <Monitor size={16} className="text-purple-500" />
+                   </div>
+                   <h3 className="font-orbitron font-bold text-gray-300 tracking-wider text-sm mb-6 flex items-center gap-2">
+                        PSYCHOLOGICAL WARFARE
+                   </h3>
+
+                   <div className="relative flex flex-col items-center">
+                        <p className="text-xs text-purple-400 font-mono tracking-[0.2em] mb-2 uppercase">Lifetime Deployments</p>
+                        <h2 className="text-7xl font-orbitron font-bold text-white relative z-10 glitch-text" data-text={totalDeployments}>
+                          {totalDeployments.toString().padStart(3, '0')}
                         </h2>
                         <div className="absolute -inset-4 bg-purple-500/20 blur-xl opacity-30 animate-pulse" />
-                     </div>
-                     <p className="text-[10px] text-gray-600 font-mono mt-2">SESSIONS COMPLETED</p>
-                  </div>
-
-                  {/* WIDGET B: VISUAL ANCHOR (HOLO FRAME) */}
-                  <div className="relative h-64 lg:h-auto bg-black border-b lg:border-b-0 lg:border-r border-white/5 group overflow-hidden">
-                     {isEditingAnchor ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-30 p-4">
-                           <div className="w-full max-w-xs space-y-2">
-                              <input 
-                                type="text" 
-                                value={anchorInput}
-                                onChange={(e) => setAnchorInput(e.target.value)}
-                                placeholder="Paste GIF/MP4 Link"
-                                className="w-full bg-gray-900 border border-purple-500 text-white p-2 text-xs font-mono focus:outline-none"
-                                autoFocus
-                              />
-                              <button onClick={handleUpdateAnchor} className="w-full bg-purple-600 text-white text-xs font-bold py-1 hover:bg-purple-500">ENGAGE</button>
-                           </div>
+                        
+                        <div className="mt-4 flex items-center gap-2 px-4 py-1.5 bg-white/5 border border-white/10 rounded-full">
+                           <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+                           <span className="text-xs font-mono text-cyan-400 tracking-widest">
+                              CYCLE OPS: {monthlyOps.toString().padStart(2, '0')}
+                           </span>
                         </div>
-                     ) : (
-                        <button 
-                           onClick={() => { setAnchorInput(anchorUrl); setIsEditingAnchor(true); }}
-                           className="absolute top-2 right-2 z-30 text-xs text-white/50 hover:text-white bg-black/50 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                           RECONFIGURE
-                        </button>
-                     )}
-                     
-                     {/* Media Renderer */}
-                     <div className="absolute inset-0 z-0">
-                        {anchorUrl.match(/\.(mp4|webm)$/i) ? (
-                           <video src={anchorUrl} autoPlay loop muted playsInline className="w-full h-full object-cover opacity-80" />
-                        ) : (
-                           <img src={anchorUrl} alt="Visual Anchor" className="w-full h-full object-cover opacity-80" />
-                        )}
-                     </div>
+                   </div>
+               </div>
 
-                     {/* Scanline Overlay (CRT Effect) */}
-                     <div className="absolute inset-0 pointer-events-none z-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
-                     <div className="absolute inset-0 pointer-events-none z-20 shadow-[inset_0_0_50px_rgba(0,0,0,0.7)]" />
-                  </div>
+               {/* RIGHT: Neural Conditioning */}
+               <div 
+                   onClick={cycleQuote}
+                   className="glass-panel p-8 rounded-xl flex flex-col justify-center cursor-pointer hover:bg-white/5 transition-colors group relative overflow-hidden border border-purple-500/20"
+                >
+                   <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-50 transition-opacity">
+                      <Quote size={40} className="text-gray-500" />
+                   </div>
+                   
+                   <div className="flex items-center gap-2 mb-6">
+                      <Hash size={12} className="text-purple-500" />
+                      <span className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">Neural Conditioning</span>
+                   </div>
+                   
+                   <div className="min-h-[100px] flex items-center justify-center text-center">
+                      <p className="font-mono text-xl text-gray-200 leading-relaxed typewriter-text relative z-10 italic">
+                        "{currentQuote}"
+                      </p>
+                   </div>
+                   
+                   <div className="mt-6 flex justify-between items-center border-t border-white/5 pt-4">
+                      <span className="text-[9px] text-purple-500 animate-pulse">AUTO-ROTATION ACTIVE</span>
+                      <RefreshCw size={14} className="text-gray-600 group-hover:text-white transition-colors group-hover:rotate-180 duration-500" />
+                   </div>
+                </div>
 
-                  {/* WIDGET C: NEURAL CONDITIONING */}
-                  <div 
-                     onClick={cycleQuote}
-                     className="p-6 flex flex-col justify-center cursor-pointer hover:bg-white/5 transition-colors group relative overflow-hidden"
-                  >
-                     <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-50 transition-opacity">
-                        <Quote size={40} className="text-gray-500" />
-                     </div>
-                     <div className="flex items-center gap-2 mb-4">
-                        <Hash size={12} className="text-purple-500" />
-                        <span className="text-[10px] text-gray-500 font-mono uppercase">Neural Conditioning</span>
-                     </div>
-                     <div className="min-h-[80px] flex items-center">
-                        <p className="font-mono text-sm text-gray-300 leading-relaxed typewriter-text relative z-10">
-                          "{currentQuote}"
-                        </p>
-                     </div>
-                     <div className="mt-4 flex justify-between items-center">
-                        <span className="text-[9px] text-purple-500 animate-pulse">AUTO-ROTATION ACTIVE</span>
-                        <RefreshCw size={12} className="text-gray-600 group-hover:text-white transition-colors group-hover:rotate-180 duration-500" />
-                     </div>
-                  </div>
-              </div>
            </div>
         </div>
       </div>
@@ -662,38 +781,37 @@ const Gym: React.FC<GymProps> = ({
          </div>
        )}
 
-       {/* PR EDIT MODAL */}
-       {editingPR && (
-         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-           <div className="glass-panel w-full max-w-sm p-6 rounded-2xl border border-yellow-500/30 shadow-[0_0_50px_rgba(234,179,8,0.2)] animate-in zoom-in-95">
-             <div className="flex justify-between items-center mb-6">
-                <h3 className="font-orbitron text-xl text-white">Update 1RM</h3>
-                <button onClick={() => setEditingPR(null)} className="text-gray-400 hover:text-white"><X /></button>
+       {/* SYSTEM OVERHEAT WARNING */}
+       {showOverheatWarning !== null && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-red-900/50 backdrop-blur-sm animate-in zoom-in-95">
+             <div className="glass-panel w-full max-w-md p-6 rounded-2xl border border-red-500 shadow-[0_0_100px_rgba(220,38,38,0.5)]">
+                 <div className="flex flex-col items-center text-center">
+                     <AlertTriangle size={64} className="text-red-500 mb-4 animate-bounce" />
+                     <h2 className="text-2xl font-orbitron font-bold text-red-500 mb-2">SYSTEM OVERHEAT WARNING</h2>
+                     <p className="text-gray-300 font-rajdhani mb-6">
+                         Structure integrity is CRITICAL. Training this muscle group now may cause failure. 
+                         Proceed with extreme caution.
+                     </p>
+                     
+                     <div className="flex gap-4 w-full">
+                         <button 
+                           onClick={() => setShowOverheatWarning(null)}
+                           className="flex-1 py-3 bg-black/40 border border-gray-600 text-gray-400 hover:text-white rounded-xl font-bold font-mono"
+                         >
+                            ABORT
+                         </button>
+                         <button 
+                           onClick={() => {
+                              setActiveSessionIndex(showOverheatWarning);
+                              setShowOverheatWarning(null);
+                           }}
+                           className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold font-orbitron tracking-widest shadow-[0_0_20px_rgba(220,38,38,0.4)]"
+                         >
+                            OVERRIDE
+                         </button>
+                     </div>
+                 </div>
              </div>
-             
-             <div className="space-y-4">
-                <div className="text-center mb-4">
-                  <p className="text-sm text-gray-500 uppercase tracking-widest">{editingPR.name}</p>
-                  <div className="relative inline-block mt-2">
-                    <input 
-                      type="number" 
-                      value={editingPR.weight}
-                      onChange={(e) => setEditingPR({ ...editingPR, weight: e.target.value })}
-                      className="text-4xl font-orbitron bg-transparent text-center text-white border-b-2 border-yellow-500 focus:outline-none w-32"
-                      autoFocus
-                    />
-                    <span className="absolute -right-6 bottom-2 text-gray-500 font-mono text-sm">kg</span>
-                  </div>
-                </div>
-
-                <button 
-                  onClick={savePREdit}
-                  className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-lg font-rajdhani tracking-wider transition-all shadow-[0_0_20px_rgba(234,179,8,0.3)]"
-                >
-                  SAVE RECORD
-                </button>
-             </div>
-           </div>
          </div>
        )}
 

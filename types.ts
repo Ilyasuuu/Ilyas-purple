@@ -5,8 +5,7 @@ export enum Tab {
   CALENDAR = 'CALENDAR',
   GYM = 'GYM',
   JOURNAL = 'JOURNAL',
-  APPS = 'APPS',
-  AI = 'ai'
+  APPS = 'APPS'
 }
 
 export type TaskFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
@@ -43,15 +42,6 @@ export interface Note {
   mood: Mood;
   isEncrypted: boolean;
   user_id?: string;
-}
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-  session_id?: string;
-  attachment?: string; // Base64 string
 }
 
 export interface UserStats {
@@ -152,4 +142,14 @@ export interface PomoState {
   initialTime: number;
   isActive: boolean;
   status: 'IDLE' | 'ENGAGED' | 'PAUSED' | 'COMPLETE';
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+  session_id: string;
+  user_id?: string;
+  attachment?: string;
 }

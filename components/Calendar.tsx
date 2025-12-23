@@ -9,6 +9,8 @@ interface CalendarProps {
   onDeleteBlock: (id: string) => void;
   viewDate: Date;
   setViewDate: (date: Date) => void;
+  highlightedBlockId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 // 06:00 to 23:00 (18 slots)
@@ -17,7 +19,7 @@ const END_HOUR = 24;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => i + START_HOUR);
 const ROW_HEIGHT = 80; // Fixed pixel height per hour
 
-const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock, viewDate, setViewDate }) => {
+const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock, viewDate, setViewDate, highlightedBlockId, onClearHighlight }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Modal State
@@ -47,8 +49,8 @@ const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock
 
   // Update Laser Line & Scroll to now on mount
   useEffect(() => {
-    // Initial scroll to current time
-    if (scrollRef.current) {
+    // Initial scroll to current time if no highlight is requested
+    if (scrollRef.current && !highlightedBlockId) {
        const h = new Date().getHours();
        if (h > 7) {
          scrollRef.current.scrollTop = (h - 7) * ROW_HEIGHT;
@@ -57,7 +59,26 @@ const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock
 
     const interval = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [highlightedBlockId]);
+
+  // Deep Link Scroll Effect
+  useEffect(() => {
+    if (highlightedBlockId && schedule.length > 0) {
+      // Small delay to ensure render is complete
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`block-${highlightedBlockId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Clear highlight after animation
+          if (onClearHighlight) {
+            setTimeout(() => onClearHighlight(), 2000);
+          }
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedBlockId, schedule, onClearHighlight]);
 
   // --- HANDLERS ---
 
@@ -220,6 +241,7 @@ const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock
            {HOURS.map((h) => {
              const timeStr = `${h.toString().padStart(2, '0')}:00`;
              const block = schedule.find(b => b.startTime === timeStr);
+             const isHighlighted = block?.id === highlightedBlockId;
 
              return (
                <div 
@@ -247,16 +269,19 @@ const Calendar: React.FC<CalendarProps> = ({ schedule, onAddBlock, onDeleteBlock
 
                     {/* Event Block */}
                     {block && (
-                      <div className="w-full h-full relative group/card isolate">
-                        
+                      <div 
+                        id={`block-${block.id}`}
+                        className="w-full h-full relative group/card isolate"
+                      >
                         {/* Main Content Layer */}
                         <div 
                           onClick={(e) => handleEventClick(e, block)}
                           className={`
                             absolute inset-0 z-10
-                            rounded border-y border-r flex items-center justify-between px-4 cursor-pointer transition-all hover:brightness-110
+                            rounded border-y border-r flex items-center justify-between px-4 cursor-pointer transition-all duration-300 hover:brightness-110
                             ${getBlockStyles(block.type)}
                             border-l-[4px] backdrop-blur-md
+                            ${isHighlighted ? 'ring-2 ring-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.5)] z-20 scale-[1.02]' : ''}
                           `}
                         >
                           <div className="flex flex-col flex-1 min-w-0 pr-2">

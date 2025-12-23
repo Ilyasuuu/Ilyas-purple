@@ -11,18 +11,27 @@ import Gym from './components/Gym';
 import Journal from './components/Journal';
 import Apps from './components/Apps';
 import Calendar from './components/Calendar';
-import AIAssistant from './components/AIAssistant';
 import SnowEffect from './components/SnowEffect';
 import Auth from './components/Auth';
 import { WALLPAPER_URL, WEEKLY_WORKOUTS, INITIAL_PRS } from './constants';
 
 const getStartOfCurrentWeek = () => {
   const now = new Date();
-  const day = now.getDay(); 
+  const day = now.getDay(); // 0 is Sunday
+  
+  // Calculate difference to get to Monday (if Sunday (0), subtract 6 days, else subtract day-1)
   const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  
   const monday = new Date(now.setDate(diff));
   monday.setHours(0, 0, 0, 0);
   return monday.getTime();
+};
+
+const getEndOfCurrentWeek = () => {
+  const start = getStartOfCurrentWeek();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7); // Next Monday 00:00 is the hard cutoff
+  return end.getTime();
 };
 
 const POMO_MODES: Record<FocusMode, { minutes: number; xp: number }> = {
@@ -59,6 +68,9 @@ const App: React.FC = () => {
   const [viewSchedule, setViewSchedule] = useState<ScheduleBlock[]>([]); 
   const [todaysSchedule, setTodaysSchedule] = useState<ScheduleBlock[]>([]); 
   const [upcomingSchedule, setUpcomingSchedule] = useState<ScheduleBlock[]>([]);
+  
+  // Deep Linking State
+  const [highlightedBlockId, setHighlightedBlockId] = useState<string | null>(null);
 
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
   const [physiqueLog, setPhysiqueLog] = useState<PhysiqueEntry[]>([]);
@@ -114,13 +126,24 @@ const App: React.FC = () => {
       } else if (statsData) {
         const today = new Date().toDateString();
         let newStreak = statsData.streak;
+        let newXp = statsData.xp; 
+
         if (statsData.last_visit !== today) {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
+            
             if (statsData.last_visit === yesterday.toDateString()) newStreak += 1;
             else newStreak = 1;
-            await supabase.from('user_stats').update({ streak: newStreak, last_visit: today }).eq('user_id', userId);
+
+            newXp += 20;
+
+            await supabase.from('user_stats').update({ 
+              streak: newStreak, 
+              last_visit: today,
+              xp: newXp
+            }).eq('user_id', userId);
         }
+        
         let currentHydration = statsData.hydration_current || 0;
         if (statsData.hydration_date !== today) {
             currentHydration = 0;
@@ -128,7 +151,7 @@ const App: React.FC = () => {
         }
 
         setStats({
-          xp: statsData.xp,
+          xp: newXp,
           level: statsData.level,
           streak: newStreak,
           focusTime: statsData.focus_time,
@@ -154,7 +177,6 @@ const App: React.FC = () => {
         tasksData.forEach((t: any) => {
           const taskDate = t.created_at ? new Date(t.created_at) : new Date(0);
           
-          // Parse Frequency from Category (Stored as "FREQUENCY::CATEGORY")
           let frequency: TaskFrequency = 'DAILY';
           let category = t.category;
 
@@ -164,18 +186,14 @@ const App: React.FC = () => {
              category = parts[1];
           }
 
-          // --- AUTO-DELETION RULES ---
           let shouldDelete = false;
 
           if (frequency === 'DAILY') {
-             // Daily tasks reset at Midnight (if created before today)
              if (taskDate < todayStart) shouldDelete = true;
           } else if (frequency === 'WEEKLY') {
-             // Weekly goals disappear after 7 days
              const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
              if (taskDate < sevenDaysAgo) shouldDelete = true;
           } else if (frequency === 'MONTHLY') {
-             // Monthly goals disappear after 30 days
              const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
              if (taskDate < thirtyDaysAgo) shouldDelete = true;
           }
@@ -183,7 +201,6 @@ const App: React.FC = () => {
           if (shouldDelete) {
              tasksToDeleteIds.push(t.id);
           } else {
-             // Add parsed task to state
              tasksToKeep.push({
                ...t,
                category: category,
@@ -209,7 +226,6 @@ const App: React.FC = () => {
           const todayStr = new Date().toISOString().split('T')[0];
           setTodaysSchedule(blocks.filter(b => b.date === todayStr));
 
-          // Calculate Upcoming Schedule (Next 30 Days)
           const now = new Date();
           const thirtyDaysLater = new Date();
           thirtyDaysLater.setDate(now.getDate() + 30);
@@ -287,13 +303,17 @@ const App: React.FC = () => {
     loadViewSchedule();
   }, [viewDate, session, tasks]);
 
+  // --- STRICT SYNC LOGIC (Monday to Sunday) ---
   useEffect(() => {
     const startOfWeek = getStartOfCurrentWeek();
+    const endOfWeek = getEndOfCurrentWeek();
+    
     setGymSessions(prevSessions => {
       const updatedSessions = prevSessions.map(session => {
+        // Filter history strictly within this week's window
         const hasLogThisWeek = workoutHistory.some(log => {
           const logTime = new Date(log.date).getTime();
-          return log.sessionName === session.focus && logTime >= startOfWeek;
+          return log.sessionName === session.focus && logTime >= startOfWeek && logTime < endOfWeek;
         });
         return { ...session, completed: hasLogThisWeek };
       });
@@ -309,26 +329,31 @@ const App: React.FC = () => {
     if (!session) return;
     await supabase.from('user_stats').update(updates).eq('user_id', session.user.id);
   };
-  const handleUpdateHydration = async (amount: number) => {
+  
+  const handleSetHydration = async (newTotal: number) => {
     if (!session) return;
-    const newTotal = Math.max(0, Math.min(stats.hydration + amount, 5000));
-    
-    // 1. Update Local State & UI
-    setStats(prev => ({ ...prev, hydration: newTotal }));
-    
-    // 2. Update Current Stats (for the progress bar)
+    const clampedTotal = Math.max(0, Math.min(newTotal, 5000));
+    setStats(prev => ({ ...prev, hydration: clampedTotal }));
     await supabase.from('user_stats').update({ 
-        hydration_current: newTotal, 
+        hydration_current: clampedTotal, 
         hydration_date: new Date().toDateString() 
     }).eq('user_id', session.user.id);
-
-    // 3. UPSERT into History Log (For the AI to read later)
     const todayISO = new Date().toISOString().split('T')[0];
     await supabase.from('hydration_logs').upsert({ 
         user_id: session.user.id, 
         date: todayISO, 
-        amount: newTotal 
+        amount: clampedTotal 
     }, { onConflict: 'user_id, date' });
+  };
+
+  const handleAddXP = async (amount: number) => {
+    if (!session) return;
+    setStats(prev => {
+      const newXp = Math.max(0, prev.xp + amount);
+      const newStats = { ...prev, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
+      updateStatsDB(newStats);
+      return newStats;
+    });
   };
 
   useEffect(() => {
@@ -338,7 +363,8 @@ const App: React.FC = () => {
         setStats(prev => {
           const newTime = prev.focusTime + 1;
           let newXp = prev.xp;
-          if (newTime > 0 && newTime % 600 === 0) newXp += 10;
+          if (newTime > 0 && newTime % 300 === 0) newXp += 20; 
+          
           if (newTime % 60 === 0) updateStatsDB({ focusTime: newTime, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 });
           return { ...prev, focusTime: newTime, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 };
         });
@@ -410,15 +436,10 @@ const App: React.FC = () => {
     await supabase.from('tasks').update({ title: newTitle }).eq('id', id);
   };
   
-  // NEW: HANDLE MOVE TASK (Drag and Drop Frequency Update)
   const handleMoveTask = async (id: string, newFrequency: TaskFrequency) => {
     const task = tasks.find(t => t.id === id);
     if (!task || !session || task.frequency === newFrequency) return;
-
-    // Optimistic Update
     setTasks(prev => prev.map(t => t.id === id ? { ...t, frequency: newFrequency } : t));
-
-    // Encode for DB: "FREQUENCY::CATEGORY"
     const encodedCategory = `${newFrequency}::${task.category}`;
     await supabase.from('tasks').update({ category: encodedCategory }).eq('id', id);
   };
@@ -442,6 +463,17 @@ const App: React.FC = () => {
     setUpcomingSchedule(prev => prev.filter(b => b.id !== id));
     await supabase.from('schedule_blocks').delete().eq('id', id);
   };
+
+  // --- DEEP LINKING HANDLER ---
+  const handleNavigateToSchedule = (dateStr: string, blockId: string) => {
+    // Append time to ensure local date parsing (avoids UTC midnight shifts)
+    const targetDate = new Date(dateStr + 'T12:00:00');
+    setViewDate(targetDate);
+    setHighlightedBlockId(blockId);
+    setActiveTab(Tab.CALENDAR);
+  };
+  // ----------------------------
+
   const handleUpdateLog = async (log: Note) => {
     if (!session) return;
     const isNew = !isNaN(Number(log.id)); 
@@ -464,8 +496,48 @@ const App: React.FC = () => {
     setWorkoutHistory(prev => [...prev, { date: new Date().toISOString(), sessionName: log.sessionName }]);
   };
   const handleResetWorkout = async (idx: number) => {
-    setStats(s => { const newXp = Math.max(0, s.xp - 150); const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; updateStatsDB(newStats); return newStats; });
-    setGymSessions(prev => prev.map((s, i) => i === idx ? { ...s, completed: false } : s));
+    if (!session) return;
+    const sessionToReset = gymSessions[idx];
+    
+    // 1. Remove from DB (Most recent log for this session type)
+    const { data: logs } = await supabase.from('training_logs')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .eq('session_name', sessionToReset.focus)
+      .order('date', { ascending: false })
+      .limit(1);
+      
+    if (logs && logs.length > 0) {
+       await supabase.from('training_logs').delete().eq('id', logs[0].id);
+    }
+
+    // 2. Remove from Local State (workoutHistory)
+    // Filter out the *most recent* matching entry.
+    setWorkoutHistory(prev => {
+        const newHistory = [...prev];
+        let foundIndex = -1;
+        // Search from end to find most recent
+        for (let i = newHistory.length - 1; i >= 0; i--) {
+            if (newHistory[i].sessionName === sessionToReset.focus) {
+                foundIndex = i;
+                break;
+            }
+        }
+        if (foundIndex !== -1) {
+            newHistory.splice(foundIndex, 1);
+        }
+        return newHistory;
+    });
+
+    // 3. Revert Stats (XP)
+    setStats(s => { 
+        const newXp = Math.max(0, s.xp - 150); 
+        const newStats = { ...s, xp: newXp, level: Math.floor(newXp / XP_PER_LEVEL) + 1 }; 
+        updateStatsDB(newStats); 
+        return newStats; 
+    });
+    
+    // gymSessions completion status will update automatically via its useEffect dependency on workoutHistory
   };
   const handleUpdateBiometrics = (key: keyof Biometrics, value: any) => {
     setBiometrics(prev => ({ ...prev, [key]: value }));
@@ -540,6 +612,8 @@ const App: React.FC = () => {
               toggleFocus={toggleFocus}
               onToggleTask={handleToggleTask}
               upcomingSchedule={upcomingSchedule}
+              onNavigateToSchedule={handleNavigateToSchedule}
+              onAddXP={handleAddXP}
             />
           )}
           {activeTab === Tab.TASKS && (
@@ -580,6 +654,8 @@ const App: React.FC = () => {
               onDeleteBlock={handleDeleteBlock}
               viewDate={viewDate}
               setViewDate={setViewDate}
+              highlightedBlockId={highlightedBlockId}
+              onClearHighlight={() => setHighlightedBlockId(null)}
             />
           )}
         </div>
@@ -592,17 +668,8 @@ const App: React.FC = () => {
           setIsSnowing={setIsSnowing}
           schedule={todaysSchedule}
           hydration={stats.hydration}
-          onUpdateHydration={handleUpdateHydration}
-          gymCompleted={isGymDone} // Passed calculated status
-        />
-      )}
-
-      {/* AI ASSISTANT: MOVED HERE (GLOBAL LAYER) */}
-      {activeTab === Tab.AI && (
-        <AIAssistant 
-          onClose={() => setActiveTab(Tab.DASHBOARD)} 
-          user={session.user}
-          onRefreshData={refreshData}
+          onUpdateHydration={handleSetHydration} // Renamed prop usage
+          gymCompleted={isGymDone} 
         />
       )}
     </div>

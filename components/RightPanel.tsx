@@ -1,6 +1,5 @@
-
-import React, { useState, useEffect } from 'react';
-import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Flame, Moon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CloudRain, Droplets, Activity, Sun, Cloud, CloudLightning, CloudSnow, Snowflake, Plus, X, Zap, Flame, Moon, Minus } from 'lucide-react';
 import { ScheduleBlock } from '../types';
 
 interface RightPanelProps {
@@ -9,7 +8,7 @@ interface RightPanelProps {
   schedule: ScheduleBlock[];
   hydration: number;
   onUpdateHydration: (amount: number) => void;
-  gymCompleted?: boolean; // New prop for sync
+  gymCompleted?: boolean;
 }
 
 const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedule, hydration, onUpdateHydration, gymCompleted }) => {
@@ -20,6 +19,37 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
   const [gymTimer, setGymTimer] = useState("00:00:00");
   const [gymStatus, setGymStatus] = useState<'COUNTDOWN' | 'HYPE' | 'CRITICAL' | 'DONE'>('COUNTDOWN');
   const [workoutSplit, setWorkoutSplit] = useState("");
+
+  // Hydration Slider State
+  const [localHydration, setLocalHydration] = useState(hydration);
+  const [isInteracting, setIsInteracting] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isGoalReached = localHydration >= DAILY_GOAL;
+
+  // Sync hydration prop to local state only when not interacting
+  useEffect(() => {
+    if (!isInteracting) {
+      setLocalHydration(hydration);
+    }
+  }, [hydration, isInteracting]);
+
+  const handleHydrationChange = (val: number) => {
+    setIsInteracting(true);
+    const newVal = Math.max(0, Math.min(val, 5000));
+    setLocalHydration(newVal);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onUpdateHydration(newVal);
+      setIsInteracting(false);
+    }, 500);
+  };
+
+  const handleQuickAdd = (amount: number) => {
+    const newVal = Math.max(0, Math.min(localHydration + amount, 5000));
+    setLocalHydration(newVal);
+    onUpdateHydration(newVal); // Immediate update for buttons
+  };
 
   // Weather Fetch
   useEffect(() => {
@@ -47,7 +77,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
   // Gym Timer Logic
   useEffect(() => {
     const updateGymTimer = () => {
-      // IF GYM COMPLETED PROP IS TRUE, FORCE DONE STATE
       if (gymCompleted) {
         setGymStatus('DONE');
         setGymTimer("00:00:00");
@@ -55,7 +84,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
       }
 
       const now = new Date();
-      // Updated to match new 7-Day Upper/Lower/Cardio Split
       const dayIndex = now.getDay();
       const splits = [
         "ACTIVE RECOVERY / MOBILITY",   // 0 Sun
@@ -84,9 +112,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
       }
 
       if (now > target) {
-        // Only set DONE if time passed AND no more blocks. 
-        // But the primary "DONE" check is handled by gymCompleted prop now.
-        // We'll reset timer here if late at night.
         setGymTimer("00:00:00");
         return;
       }
@@ -104,7 +129,7 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
     const timer = setInterval(updateGymTimer, 1000);
     updateGymTimer();
     return () => clearInterval(timer);
-  }, [schedule, gymCompleted]); // Added gymCompleted dependency
+  }, [schedule, gymCompleted]);
 
   const getWeatherDescription = (code: number) => {
     if (code === 0) return "Clear Sky";
@@ -122,8 +147,48 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
     return <CloudRain className="w-8 h-8 text-blue-400" />;
   };
 
+  // Custom CSS for Cyberpunk Range Input
+  const rangeStyle = `
+    .cyber-range {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: rgba(34, 211, 238, 0.2);
+      border-radius: 4px;
+      outline: none;
+    }
+    .cyber-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      background: #22d3ee;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+      border: 2px solid #fff;
+      margin-top: -7px;
+    }
+    .cyber-range::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      background: #22d3ee;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+      border: 2px solid #fff;
+    }
+    .cyber-range::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 6px;
+      cursor: pointer;
+      background: linear-gradient(90deg, #22d3ee 0%, rgba(34, 211, 238, 0.2) 100%);
+      border-radius: 4px;
+    }
+  `;
+
   return (
     <>
+      <style>{rangeStyle}</style>
       <aside className="hidden xl:flex flex-col w-80 fixed right-6 top-6 bottom-6 glass-floating rounded-[30px] p-6 space-y-6 overflow-y-auto z-40 no-scrollbar">
         
         {/* Profile */}
@@ -157,24 +222,34 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
           </div>
         </div>
 
-        {/* Hydration */}
+        {/* Hydration Widget */}
         <div 
           onClick={() => setIsHydrationModalOpen(true)}
-          className="glass-panel p-5 rounded-2xl cursor-pointer hover:bg-white/5 transition-all group relative overflow-hidden border border-cyan-500/20"
+          className={`glass-panel p-5 rounded-2xl cursor-pointer hover:bg-white/5 transition-all group relative overflow-hidden border ${isGoalReached ? 'border-yellow-500/40 shadow-[0_0_20px_rgba(234,179,8,0.2)]' : 'border-cyan-500/20'}`}
         >
-          <div className="absolute bottom-0 left-0 h-full bg-cyan-500/10 transition-all duration-700 ease-out" style={{ width: `${Math.min((hydration / DAILY_GOAL) * 100, 100)}%` }} />
+          <div className={`absolute bottom-0 left-0 h-full transition-all duration-700 ease-out ${isGoalReached ? 'bg-yellow-500/10' : 'bg-cyan-500/10'}`} style={{ width: `${Math.min((hydration / DAILY_GOAL) * 100, 100)}%` }} />
           <div className="relative z-10 flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400 group-hover:scale-110 transition-transform shadow-[0_0_10px_rgba(34,211,238,0.2)]"><Droplets size={20} /></div>
+              <div className={`p-2 rounded-lg transition-transform group-hover:scale-110 shadow-lg ${isGoalReached ? 'bg-yellow-500/20 text-yellow-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                {isGoalReached ? <Flame size={20} className="animate-pulse" /> : <Droplets size={20} />}
+              </div>
               <div>
                 <h4 className="text-sm font-bold text-white font-orbitron">Hydration</h4>
-                <p className="text-xs text-cyan-400 font-mono">{hydration}ml <span className="text-gray-500">/ {DAILY_GOAL}ml</span></p>
+                <p className={`text-xs font-mono ${isGoalReached ? 'text-yellow-400 font-bold' : 'text-cyan-400'}`}>
+                   {hydration}ml <span className="text-gray-500">/ {DAILY_GOAL}ml</span>
+                </p>
               </div>
             </div>
             <div className="relative w-10 h-10 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90">
                 <circle cx="20" cy="20" r="16" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-gray-700" />
-                <circle cx="20" cy="20" r="16" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-cyan-400" strokeDasharray={100} strokeDashoffset={100 - (Math.min(hydration / DAILY_GOAL, 1) * 100)} />
+                <circle 
+                  cx="20" cy="20" r="16" stroke="currentColor" strokeWidth="3" fill="transparent" 
+                  className={`${isGoalReached ? 'text-yellow-400' : 'text-cyan-400'}`} 
+                  strokeDasharray={100} 
+                  strokeDashoffset={100 - (Math.min(hydration / DAILY_GOAL, 1) * 100)} 
+                  strokeLinecap="round"
+                />
               </svg>
               <Plus size={12} className="absolute text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
@@ -194,8 +269,6 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
              ) : (
                 <div className="text-center">
                   <div className={`text-4xl font-orbitron font-bold tracking-widest mb-2 ${gymStatus === 'CRITICAL' ? 'text-white animate-pulse' : 'text-purple-300'}`}>{gymTimer}</div>
-                  
-                  {/* UPDATED: Allows wrapping and smaller text so it fits */}
                   <p className="text-xs font-bold text-white font-orbitron tracking-wide uppercase break-words leading-tight px-1">
                     {gymStatus === 'CRITICAL' ? "LET'S GO ILYASUU" : workoutSplit}
                   </p>
@@ -204,9 +277,8 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
            </div>
         </div>
 
-        {/* --- PRAYER TIMES WIDGET (FIXED: Scaled to fit Sunday) --- */}
+        {/* PRAYER TIMES WIDGET */}
         <div className="glass-panel p-0 rounded-2xl relative overflow-hidden border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)] group">
-           {/* Header */}
            <div className="absolute top-0 left-0 w-full p-3 bg-black/80 backdrop-blur-md z-10 flex justify-between items-center border-b border-emerald-500/20">
               <div className="flex items-center gap-2">
                  <Moon size={14} className="text-emerald-400" />
@@ -217,50 +289,118 @@ const RightPanel: React.FC<RightPanelProps> = ({ isSnowing, setIsSnowing, schedu
                  <span className="text-[9px] font-mono text-emerald-500">SYNCED</span>
               </div>
            </div>
-
-           {/* Iframe with Dark Mode Filter AND Zoom Scaling */}
            <div className="w-full h-[360px] bg-black pt-8 overflow-hidden relative">
               <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center', width: '117%', height: '117%' }}>
                 <iframe 
                   id="iframe" 
                   title="prayerWidget" 
                   className="w-full h-full" 
-                  style={{ 
-                      border: 'none',
-                      // Dark mode filter
-                      filter: 'invert(0.92) hue-rotate(180deg) contrast(1.1) saturate(0.8)' 
-                  }} 
+                  style={{ border: 'none', filter: 'invert(0.92) hue-rotate(180deg) contrast(1.1) saturate(0.8)' }} 
                   scrolling="no" 
                   src="https://www.islamicfinder.org/prayer-widget/593116/shafi/1/0/18.0/17.0"
                 />
               </div>
            </div>
-           {/* Decorative Footer */}
            <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-900 via-emerald-500 to-emerald-900 opacity-50" />
         </div>
 
       </aside>
 
-      {/* Hydration Modal */}
+      {/* Advanced Hydration Modal */}
       {isHydrationModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsHydrationModalOpen(false)} />
-          <div className="glass-panel w-full max-w-sm p-6 rounded-3xl relative animate-in zoom-in-95 border border-cyan-500/30">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`glass-panel w-full max-w-sm p-6 rounded-3xl relative animate-in zoom-in-95 border transition-all duration-500 ${isGoalReached ? 'border-yellow-500/50 shadow-[0_0_50px_rgba(234,179,8,0.3)]' : 'border-cyan-500/30'}`}>
             <button onClick={() => setIsHydrationModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
-            <div className="text-center mb-6"><h3 className="text-2xl font-orbitron text-white">Hydration Log</h3><p className="text-cyan-400 font-mono text-sm mt-1">Target: {DAILY_GOAL}ml</p></div>
-            <div className="flex justify-center mb-8 relative">
-              <div className="w-40 h-40 rounded-full border-4 border-gray-800 flex items-center justify-center relative">
+            
+            <div className="text-center mb-6">
+              <h3 className={`text-2xl font-orbitron transition-colors ${isGoalReached ? 'text-yellow-400 animate-pulse' : 'text-white'}`}>
+                {isGoalReached ? 'GOAL REACHED!' : 'HYDRATION LOG'}
+              </h3>
+              <p className="text-cyan-400 font-mono text-sm mt-1">Target: {DAILY_GOAL}ml</p>
+            </div>
+
+            {/* Interactive Progress Circle */}
+            <div className="flex justify-center mb-6 relative">
+              <div className="w-48 h-48 rounded-full flex items-center justify-center relative">
+                 {/* Ring Glow Effect */}
+                 <div className={`absolute inset-0 rounded-full blur-xl opacity-20 transition-colors duration-500 ${isGoalReached ? 'bg-yellow-500' : 'bg-cyan-500'}`} />
+                 
                  <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-                   <circle cx="50%" cy="50%" r="70" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-800" />
-                   <circle cx="50%" cy="50%" r="70" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-cyan-500 transition-all duration-700 ease-out" strokeDasharray={440} strokeDashoffset={440 - (Math.min(hydration / DAILY_GOAL, 1) * 440)} strokeLinecap="round" />
+                   <circle cx="50%" cy="50%" r="80" stroke="#1f2937" strokeWidth="8" fill="transparent" />
+                   <circle 
+                     cx="50%" cy="50%" r="80" 
+                     stroke="currentColor" 
+                     strokeWidth="8" 
+                     fill="transparent" 
+                     className={`transition-all duration-700 ease-out ${isGoalReached ? 'text-yellow-400' : 'text-cyan-500'}`} 
+                     strokeDasharray={502} 
+                     strokeDashoffset={502 - (Math.min(localHydration / DAILY_GOAL, 1) * 502)} 
+                     strokeLinecap="round" 
+                   />
                  </svg>
-                 <div className="text-center z-10"><span className="text-4xl font-bold text-white block">{Math.round((hydration / DAILY_GOAL) * 100)}%</span><span className="text-xs text-gray-400 uppercase tracking-widest">{hydration}ml</span></div>
+                 
+                 {/* Numeric Input */}
+                 <div className="text-center z-10 flex flex-col items-center">
+                   <div className="relative group">
+                     <input 
+                       type="number"
+                       value={localHydration}
+                       onChange={(e) => handleHydrationChange(parseInt(e.target.value) || 0)}
+                       className="text-4xl font-bold font-orbitron text-white bg-transparent text-center w-32 focus:outline-none border-b border-transparent focus:border-cyan-500 transition-colors"
+                     />
+                     <span className="absolute right-0 bottom-2 text-xs text-gray-500 font-mono pointer-events-none">ml</span>
+                   </div>
+                   <span className={`text-sm font-bold mt-1 transition-colors ${isGoalReached ? 'text-yellow-400' : 'text-cyan-400'}`}>
+                     {Math.round((localHydration / DAILY_GOAL) * 100)}%
+                   </span>
+                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-                 <button onClick={() => onUpdateHydration(250)} className="p-4 bg-cyan-900/20 border border-cyan-500/30 hover:bg-cyan-500/20 rounded-xl flex flex-col items-center gap-2"><Plus className="text-cyan-400" /><span className="text-white font-bold">+250ml</span></button>
-                 <button onClick={() => onUpdateHydration(500)} className="p-4 bg-cyan-900/20 border border-cyan-500/30 hover:bg-cyan-500/20 rounded-xl flex flex-col items-center gap-2"><Plus className="text-cyan-400" /><span className="text-white font-bold">+500ml</span></button>
+
+            {/* Slider Control */}
+            <div className="mb-8 px-2">
+              <input 
+                type="range" 
+                min="0" max="4000" step="50"
+                value={localHydration}
+                onChange={(e) => handleHydrationChange(parseInt(e.target.value))}
+                className="cyber-range"
+              />
+              <div className="flex justify-between text-[10px] text-gray-500 font-mono mt-2">
+                <span>0ml</span>
+                <span>TARGET ({DAILY_GOAL}ml)</span>
+                <span>MAX</span>
+              </div>
             </div>
+
+            {/* Quick Actions */}
+            <div className="grid grid-cols-2 gap-3">
+                 <button 
+                    onClick={() => handleQuickAdd(250)} 
+                    className="p-3 bg-cyan-900/20 border border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl flex flex-col items-center gap-1 transition-all group"
+                 >
+                    <Plus className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                    <span className="text-white font-bold font-rajdhani">+250ml</span>
+                 </button>
+                 <button 
+                    onClick={() => handleQuickAdd(500)} 
+                    className="p-3 bg-cyan-900/20 border border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl flex flex-col items-center gap-1 transition-all group"
+                 >
+                    <Plus className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                    <span className="text-white font-bold font-rajdhani">+500ml</span>
+                 </button>
+            </div>
+            
+            {/* Correction Button */}
+            <div className="mt-3 text-center">
+               <button 
+                 onClick={() => handleQuickAdd(-250)}
+                 className="text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center justify-center gap-1 mx-auto"
+               >
+                 <Minus size={12} /> Correct Entry (-250ml)
+               </button>
+            </div>
+
           </div>
         </div>
       )}
