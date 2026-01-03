@@ -361,7 +361,13 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
           </h3>
           <div className="flex-1 space-y-2 overflow-y-auto no-scrollbar relative z-10">
             {gymSessions.map((session, idx) => {
-              const todayIndex = (new Date().getDay() + 6) % 7; 
+              // UPDATED: Correct index shift for Thursday Start
+              // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+              // Target: Thu(4)->0, Fri(5)->1, Sat(6)->2, Sun(0)->3, Mon(1)->4, Tue(2)->5, Wed(3)->6
+              // Formula: (day + 3) % 7
+              const currentDay = new Date().getDay();
+              const todayIndex = (currentDay + 3) % 7; 
+              
               const isToday = idx === todayIndex;
               const isRest = session.focus === 'Rest';
               
@@ -373,15 +379,16 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
                     barColor = 'bg-cyan-500';
                     glow = 'shadow-[0_0_8px_cyan]';
                  } else {
-                    barColor = 'bg-purple-500';
-                    glow = 'shadow-[0_0_8px_#A855F7]';
+                    // CHANGED: Use Green for standard workouts to match Gym tab
+                    barColor = 'bg-green-500';
+                    glow = 'shadow-[0_0_8px_lime]';
                  }
               }
 
               return (
                 <div 
                   key={idx} 
-                  className={`flex items-center justify-between p-2 rounded-lg transition-all ${isToday ? 'bg-white/5 border border-white/20' : 'border border-transparent'}`}
+                  className={`flex items-center justify-between p-2 rounded-lg transition-all ${isToday ? 'bg-white/10 border border-white/30 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]' : 'border border-transparent'}`}
                 >
                   <span className={`font-mono text-xs w-8 flex-shrink-0 ${isToday ? 'text-white font-bold' : 'text-gray-500'}`}>{session.day}</span>
                   
@@ -395,7 +402,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stats, tasks, gymSessions, upcomi
                      ))}
                   </div>
 
-                  <span className={`text-[10px] font-rajdhani w-16 text-right ${session.completed ? 'text-green-400' : isToday ? 'text-white' : 'text-gray-600'}`}>
+                  <span className={`text-[10px] font-rajdhani w-16 text-right ${session.completed ? 'text-green-400 font-bold' : isToday ? 'text-white' : 'text-gray-600'}`}>
                     {session.focus.split(' ')[0]}
                   </span>
                 </div>

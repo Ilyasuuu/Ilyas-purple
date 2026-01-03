@@ -15,22 +15,26 @@ import SnowEffect from './components/SnowEffect';
 import Auth from './components/Auth';
 import { WALLPAPER_URL, WEEKLY_WORKOUTS, INITIAL_PRS } from './constants';
 
+// UPDATED: Start week on THURSDAY
 const getStartOfCurrentWeek = () => {
   const now = new Date();
   const day = now.getDay(); // 0 is Sunday
   
-  // Calculate difference to get to Monday (if Sunday (0), subtract 6 days, else subtract day-1)
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  // Target: Thursday (4)
+  // Calculate days passed since last Thursday
+  // If Today is Thu(4), diff=0. Fri(5)=1. Wed(3)=6.
+  const daysSinceThursday = (day + 3) % 7;
   
-  const monday = new Date(now.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday.getTime();
+  const thursday = new Date(now);
+  thursday.setDate(now.getDate() - daysSinceThursday);
+  thursday.setHours(0, 0, 0, 0);
+  return thursday.getTime();
 };
 
 const getEndOfCurrentWeek = () => {
   const start = getStartOfCurrentWeek();
   const end = new Date(start);
-  end.setDate(end.getDate() + 7); // Next Monday 00:00 is the hard cutoff
+  end.setDate(end.getDate() + 7); 
   return end.getTime();
 };
 
@@ -327,20 +331,36 @@ const App: React.FC = () => {
     loadViewSchedule();
   }, [viewDate, session, tasks]);
 
-  // --- STRICT SYNC LOGIC (Monday to Sunday) ---
+  // --- FLEXIBLE SYNC LOGIC (Count Based) ---
+  // Fixes issue where late/early workouts wouldn't turn the card green.
   useEffect(() => {
     const startOfWeek = getStartOfCurrentWeek();
     const endOfWeek = getEndOfCurrentWeek();
     
+    // 1. Inventory: Count how many times each session type was done this week
+    const logsByName: Record<string, number> = {};
+    
+    workoutHistory.forEach(log => {
+      const logTime = new Date(log.date).getTime();
+      if (logTime >= startOfWeek && logTime < endOfWeek) {
+        logsByName[log.sessionName] = (logsByName[log.sessionName] || 0) + 1;
+      }
+    });
+
     setGymSessions(prevSessions => {
+      // Create a mutable copy of the inventory to consume as we fill slots
+      const availableLogs = { ...logsByName };
+      
       const updatedSessions = prevSessions.map(session => {
-        // Filter history strictly within this week's window
-        const hasLogThisWeek = workoutHistory.some(log => {
-          const logTime = new Date(log.date).getTime();
-          return log.sessionName === session.focus && logTime >= startOfWeek && logTime < endOfWeek;
-        });
-        return { ...session, completed: hasLogThisWeek };
+        const name = session.focus;
+        // If we have a log available for this session type, consume it and mark complete
+        if (availableLogs[name] && availableLogs[name] > 0) {
+          availableLogs[name]--;
+          return { ...session, completed: true };
+        }
+        return { ...session, completed: false };
       });
+      
       return JSON.stringify(updatedSessions) !== JSON.stringify(prevSessions) ? updatedSessions : prevSessions;
     });
   }, [workoutHistory]);

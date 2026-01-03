@@ -94,7 +94,7 @@ const Gym: React.FC<GymProps> = ({
   useEffect(() => {
     if (activeSessionIndex !== null) {
       const sessionName = sessions[activeSessionIndex].focus;
-      const exercises = WORKOUT_PLAN[sessionName] || WORKOUT_PLAN['Rest'] || [];
+      const exercises = WORKOUT_PLAN[sessionName] || WORKOUT_PLAN['Light Cardio'] || [];
       
       setSessionData(exercises.map(ex => ({
         ...ex,
@@ -207,17 +207,43 @@ const Gym: React.FC<GymProps> = ({
     );
   };
 
-  // --- CONTINUOUS FATIGUE LOGIC ---
+  // HELPER: Get Start of Week (Thursday-Based)
+  const getStartOfCurrentWeek = () => {
+    const now = new Date();
+    const day = now.getDay(); 
+    // Target: Thursday (4)
+    const daysSinceThursday = (day + 3) % 7;
+    const thursday = new Date(now);
+    thursday.setDate(now.getDate() - daysSinceThursday);
+    thursday.setHours(0, 0, 0, 0);
+    return thursday.getTime();
+  };
+
+  // --- CONTINUOUS FATIGUE LOGIC (UPDATED FOR ARNOLD SPLIT & THURSDAY RESET) ---
   const calculateFatigue = (system: 'PUSH' | 'PULL' | 'LEGS') => {
     const now = new Date().getTime();
+    const startOfWeek = getStartOfCurrentWeek();
     let fatigue = 0;
 
-    // Filter relevant logs from ALL history (Continuous timeframe)
+    // Filter relevant logs based on system
     const relevantLogs = workoutHistory.filter(h => {
+       const logTime = new Date(h.date).getTime();
+       // Reset Logic: Ignore logs before current cycle
+       if (logTime < startOfWeek) return false;
+
        const sName = h.sessionName.toUpperCase();
-       if (system === 'PUSH') return sName.includes('UPPER'); // Upper involves Push
-       if (system === 'PULL') return sName.includes('UPPER'); // Upper involves Pull
-       if (system === 'LEGS') return sName.includes('LOWER');
+       
+       if (system === 'PUSH') {
+         // Push is affected by Chest, Shoulders, Triceps
+         return sName.includes('CHEST') || sName.includes('SHOULDER') || sName.includes('PUSH') || sName.includes('UPPER');
+       }
+       if (system === 'PULL') {
+         // Pull is affected by Back, Biceps (Chest & Back hits both)
+         return sName.includes('BACK') || sName.includes('PULL') || sName.includes('UPPER');
+       }
+       if (system === 'LEGS') {
+         return sName.includes('LEGS') || sName.includes('LOWER');
+       }
        return false;
     });
 
@@ -225,7 +251,6 @@ const Gym: React.FC<GymProps> = ({
     relevantLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // Only consider the most recent significant workout for fatigue spike
-    // But verify if multiple occurred within 48h window
     if (relevantLogs.length > 0) {
         const lastLog = relevantLogs[0];
         const logTime = new Date(lastLog.date).getTime();
@@ -243,14 +268,9 @@ const Gym: React.FC<GymProps> = ({
     return fatigue;
   };
 
-  // --- VOLUME LOGIC (WEEKLY RING) ---
+  // --- VOLUME LOGIC (UPDATED FOR ARNOLD SPLIT & THURSDAY START) ---
   const calculateWeeklyVolume = (system: 'PUSH' | 'PULL' | 'LEGS') => {
-      const now = new Date();
-      const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-      const monday = new Date(now.setDate(diff));
-      monday.setHours(0,0,0,0);
-      const startOfWeek = monday.getTime();
+      const startOfWeek = getStartOfCurrentWeek();
       const endOfWeek = startOfWeek + (7 * 24 * 60 * 60 * 1000);
 
       // Count sessions for this system this week
@@ -259,13 +279,13 @@ const Gym: React.FC<GymProps> = ({
         const sName = h.sessionName.toUpperCase();
         if (logTime < startOfWeek || logTime >= endOfWeek) return false;
 
-        if (system === 'PUSH') return sName.includes('UPPER');
-        if (system === 'PULL') return sName.includes('UPPER');
-        if (system === 'LEGS') return sName.includes('LOWER');
+        if (system === 'PUSH') return sName.includes('CHEST') || sName.includes('SHOULDER');
+        if (system === 'PULL') return sName.includes('BACK') || sName.includes('ARMS'); // Arms usually has biceps (pull)
+        if (system === 'LEGS') return sName.includes('LEGS');
         return false;
       }).length;
 
-      // Target: 2 sessions per week per system
+      // Target: 2 sessions per week per system (Arnold Split)
       return Math.min((count / 2) * 100, 100);
   };
 
@@ -333,14 +353,21 @@ const Gym: React.FC<GymProps> = ({
   const pullStatus = getSystemStatus(pullFatigue);
   const legsStatus = getSystemStatus(legsFatigue);
 
-  // Overheat Check
+  // Overheat Check (Updated for New Split)
   const handleSessionClick = (index: number) => {
     const sessionName = sessions[index].focus.toUpperCase();
     let isCritical = false;
 
-    if (sessionName.includes('UPPER')) {
+    // Chest & Back hits both systems
+    if (sessionName.includes('CHEST') || sessionName.includes('BACK')) {
         if (pushFatigue >= 75 || pullFatigue >= 75) isCritical = true;
-    } else if (sessionName.includes('LOWER')) {
+    } 
+    // Shoulders & Arms also hits both (Shoulder=Push, Bicep=Pull)
+    else if (sessionName.includes('SHOULDER') || sessionName.includes('ARMS')) {
+        if (pushFatigue >= 75 || pullFatigue >= 75) isCritical = true;
+    }
+    // Legs
+    else if (sessionName.includes('LEGS')) {
         if (legsFatigue >= 75) isCritical = true;
     }
 
@@ -389,7 +416,7 @@ const Gym: React.FC<GymProps> = ({
                <div className="absolute top-0 right-0 p-4 opacity-10">
                   <Dumbbell size={100} />
                </div>
-               <h2 className="text-2xl font-orbitron text-white mb-6 border-l-4 border-red-500 pl-4">Program: Hypertrophy V2</h2>
+               <h2 className="text-2xl font-orbitron text-white mb-6 border-l-4 border-red-500 pl-4">Program: Arnold Split (Modified)</h2>
                
                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
                   {sessions.map((day, i) => (
@@ -410,7 +437,7 @@ const Gym: React.FC<GymProps> = ({
                             e.stopPropagation();
                             onResetWorkout(i);
                           }}
-                          className="absolute top-1 right-1 p-0.5 text-green-300 hover:text-white hover:bg-red-500 rounded-full z-20 opacity-0 group-hover:opacity-100 transition-all"
+                          className="absolute top-1 right-1 p-1 text-green-300 hover:text-white bg-black/50 hover:bg-red-500 rounded-full z-20 transition-all"
                           title="Uncheck / Reset"
                         >
                           <X size={12} />
@@ -418,7 +445,7 @@ const Gym: React.FC<GymProps> = ({
                       )}
 
                       <span className="font-mono text-xs text-gray-400">{day.day}</span>
-                      <span className={`font-bold text-sm text-center leading-tight ${day.completed ? 'text-green-400' : 'text-white'}`}>
+                      <span className={`font-bold text-xs md:text-sm text-center leading-tight ${day.completed ? 'text-green-400' : 'text-white'}`}>
                         {day.focus}
                       </span>
                       <div className={`w-2 h-2 rounded-full ${day.completed ? 'bg-green-500 shadow-[0_0_5px_lime]' : 'bg-gray-800'}`} />
@@ -524,10 +551,10 @@ const Gym: React.FC<GymProps> = ({
                           {/* Head */}
                           <circle cx="50" cy="15" r="10" fill="#1f2937" />
                           
-                          {/* Torso Top (Push) */}
+                          {/* Torso Top (Push/Pull Chest/Back) */}
                           <rect x="25" y="30" width="50" height="30" fill={pushStatus.fill} stroke="gray" strokeWidth="0.5" className={`${pushStatus.glow} transition-all duration-700 ${restoreAnim.PUSH ? 'animate-restore fill-cyan-500/50' : pushStatus.animation}`} />
                           
-                          {/* Torso Mid (Pull) */}
+                          {/* Torso Mid (Abs/Core) */}
                           <rect x="25" y="60" width="50" height="30" fill={pullStatus.fill} stroke="gray" strokeWidth="0.5" className={`${pullStatus.glow} transition-all duration-700 ${restoreAnim.PULL ? 'animate-restore fill-cyan-500/50' : pullStatus.animation}`} />
                           
                           {/* Legs */}
@@ -554,7 +581,7 @@ const Gym: React.FC<GymProps> = ({
                                <div className="w-full bg-white transition-all duration-1000" style={{ height: `${pushVolume}%` }} />
                             </div>
 
-                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Push Systems</p>
+                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Push (Chest/Shldr)</p>
                             <p className={`text-lg font-bold font-orbitron pl-2 ${pushStatus.color}`}>{pushStatus.label}</p>
                             <p className="text-xs text-gray-600 font-mono pl-2 group-hover:text-white transition-colors">VOLUME: {Math.round(pushVolume)}%</p>
                          </div>
@@ -565,7 +592,7 @@ const Gym: React.FC<GymProps> = ({
                                <div className="w-full bg-white transition-all duration-1000" style={{ height: `${pullVolume}%` }} />
                             </div>
 
-                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Pull Systems</p>
+                            <p className="text-[10px] text-gray-500 uppercase font-mono pl-2">Pull (Back/Arms)</p>
                             <p className={`text-lg font-bold font-orbitron pl-2 ${pullStatus.color}`}>{pullStatus.label}</p>
                             <p className="text-xs text-gray-600 font-mono pl-2 group-hover:text-white transition-colors">VOLUME: {Math.round(pullVolume)}%</p>
                          </div>
